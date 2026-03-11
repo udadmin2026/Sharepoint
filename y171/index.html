@@ -251,8 +251,7 @@ function val(v) { return v || '—'; }
 
 function fmtTons(n) {
   if (!n && n !== 0) return '—';
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
-  return Math.round(n).toLocaleString();
+  return Math.round(n).toLocaleString('en-US');
 }
 
 // Date range helpers — all in local time
@@ -584,21 +583,32 @@ async function loadData() {
   }
 }
 
-// Fetch all production entries from last 2 months (no project filter — filter client-side)
+// Fetch ALL production entries with pagination (no date filter — captures full project history)
 async function fetchAllProduction(token) {
-  const cutoff = new Date();
-  cutoff.setMonth(cutoff.getMonth() - 2);
+  const baseSelect = `Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`;
+  const baseExpand = PROD.project;
+  let url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
+          + `?$select=${baseSelect}&$expand=${baseExpand}&$top=5000`;
 
-  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`
-            + `&$expand=${PROD.project}`
-            + `&$filter=${PROD.date} ge datetime'${cutoff.toISOString()}'`
-            + `&$top=2000`
-            + `&$orderby=${PROD.date} desc`;
+  const allResults = [];
+  let pageCount = 0;
+  const MAX_PAGES = 20; // safety cap — 20 × 5000 = 100,000 entries max
 
-  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
-  if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} — ${e.slice(0,200)}`); }
-  return (await r.json())?.d?.results ?? [];
+  while (url && pageCount < MAX_PAGES) {
+    const r = await fetch(url, {
+      headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` }
+    });
+    if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} — ${e.slice(0,200)}`); }
+    const data = await r.json();
+    const results = data?.d?.results ?? [];
+    allResults.push(...results);
+
+    // SharePoint returns __next link when more pages exist
+    url = data?.d?.__next || null;
+    pageCount++;
+  }
+
+  return allResults;
 }
 
 // Match production entry to active project using Project List Title field
