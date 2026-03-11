@@ -331,29 +331,50 @@ const REFRESH_MS = 2 * 60 * 1000;
 let timer = null;
 let msalInstance = null;
 let accessToken  = null;
-let activeProjectTitle = null; // set after project cards load
+let activeProjectTitle = null;
 
 // ── MSAL SETUP ────────────────────────────────────────────
 const msalConfig = {
   auth: {
     clientId:    CLIENT_ID,
     authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
-    // Must match the redirectUri used by the auth page exactly —
-    // MSAL uses this to validate cached tokens from the same auth flow
     redirectUri: 'https://udadmin2026.github.io/Sharepoint/auth/',
   },
-  cache: {
-    cacheLocation: 'localStorage',
-    storeAuthStateInCookie: true,
-  },
-  system: {
-    allowNativeBroker: false,
-    windowHashTimeout: 60000,
-    iframeHashTimeout: 10000,
-    loadFrameTimeout: 10000,
-  }
+  cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true },
+  system: { iframeHashTimeout: 10000, loadFrameTimeout: 10000 }
 };
 const loginRequest = { scopes: ['https://jddredging.sharepoint.com/AllSites.Read'] };
+
+// ── SHAREPOINT DIGEST AUTH ─────────────────────────────────
+// When embedded in SharePoint, we can get a request digest from the SP REST API
+// using credentials:'include' (session cookies) — no MSAL needed.
+// This works because the user's browser has SharePoint session cookies.
+let spDigestToken   = null;
+let spDigestExpiry  = 0;
+
+async function getSpDigestToken() {
+  const now = Math.floor(Date.now() / 1000);
+  if (spDigestToken && spDigestExpiry > now + 60) return spDigestToken;
+  try {
+    const r = await fetch(`${SITE_URL}/_api/contextinfo`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Accept': 'application/json;odata=verbose', 'Content-Type': 'application/json;odata=verbose' }
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const digest = data?.d?.GetContextWebInformation?.FormDigestValue;
+    if (!digest) return null;
+    const timeoutSec = data?.d?.GetContextWebInformation?.FormDigestTimeoutSeconds || 1800;
+    spDigestToken  = digest;
+    spDigestExpiry = now + timeoutSec;
+    statusMsg('Auth: SP session cookies working ✓');
+    return digest;
+  } catch(e) {
+    statusMsg('Auth: SP digest failed — ' + e.message.slice(0,50));
+    return null;
+  }
+}
 
 
 
@@ -653,16 +674,37 @@ function renderStats(stats, jobName, contractedTons) {
     ${progressHtml}`;
 }
 
-// ── FETCH HELPER with timeout ─────────────────────────────
+// ── FETCH HELPER ──────────────────────────────────────────
+// Tries cookie auth first (works when embedded in SharePoint — same-origin cookies),
+// then falls back to Bearer token if provided.
 async function fetchSP(url, token, timeoutMs = 20000) {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
+
+  const headers = { 'Accept': 'application/json;odata=verbose' };
+  const opts = { signal: ctrl.signal, headers };
+
+  // If we have a digest token, use cookie-based auth (no Authorization header needed)
+  // Cookie auth works when the browser has SharePoint session cookies (embedded in SP page)
+  if (spDigestToken) {
+    // Cookie auth — browser sends SharePoint session cookies automatically
+    opts.credentials = 'include';
+  } else if (token && token !== '__cookie_auth__') {
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+
   try {
-    const r = await fetch(url, {
-      signal: ctrl.signal,
-      headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': 'Bearer ' + token }
-    });
+    const r = await fetch(url, opts);
     clearTimeout(tid);
+
+    // If cookie auth got 401, retry with Bearer token if available
+    if (r.status === 401 && spDigestToken && token) {
+      statusMsg('Cookie auth 401 — retrying with Bearer token…');
+      const r2 = await fetch(url, {
+        headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': 'Bearer ' + token }
+      });
+      return r2;
+    }
     return r;
   } catch(e) {
     clearTimeout(tid);
@@ -839,6 +881,17 @@ function withTimeout(promise, ms, label) {
 }
 
 async function getToken() {
+  // Tier 0: Try SharePoint cookie/digest auth first
+  // This works when the widget is embedded in a SharePoint page — the user's
+  // browser session cookies authenticate automatically, no MSAL needed.
+  statusMsg('Auth: trying SP session cookies…');
+  const digest = await getSpDigestToken();
+  if (digest) {
+    // Cookie auth working — return a sentinel value so loadData proceeds
+    // fetchSP will use credentials:include instead of Authorization header
+    return '__cookie_auth__';
+  }
+
   // Tier 1: acquireTokenSilent from cached accounts
   const accounts = msalInstance.getAllAccounts();
   statusMsg('Auth: checking ' + accounts.length + ' cached accounts…');
