@@ -7,7 +7,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
-  <!-- MSAL — Microsoft's official auth library for browser apps -->
   <script src="https://alcdn.msauth.net/browser/2.38.1/js/msal-browser.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22,14 +21,16 @@
       --card-bg: rgba(35,45,99,0.45);
       --border:  rgba(245,246,250,0.12);
     }
-    html, body { min-height: 100%; background: var(--navy); font-family: 'Barlow', sans-serif; color: var(--white); }
+    html, body { background: var(--navy); font-family: 'Barlow', sans-serif; color: var(--white); }
     body {
       background:
         radial-gradient(ellipse 80% 60% at 10% 0%, rgba(35,45,99,0.6) 0%, transparent 60%),
         radial-gradient(ellipse 60% 50% at 90% 100%, rgba(218,0,57,0.08) 0%, transparent 55%),
         var(--navy);
-      padding: 24px 20px 36px;
+      padding: 20px;
     }
+
+    /* ── HEADER ── */
     .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
     .header-left { display: flex; align-items: center; gap: 14px; }
     .unit-badge { background: var(--red); font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 22px; letter-spacing: 1px; padding: 6px 14px 5px; border-radius: 6px; line-height: 1; text-transform: uppercase; }
@@ -44,6 +45,8 @@
     .btn.loading { opacity: 0.6; pointer-events: none; }
     .btn-signin { background: var(--red); border-color: rgba(218,0,57,0.5); font-size: 14px; padding: 10px 24px; }
     .btn-signin:hover { background: #b8002f; }
+
+    /* ── PROJECT CARDS ── */
     .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
     .status-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; backdrop-filter: blur(12px); overflow: hidden; display: flex; flex-direction: column; }
     .card-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 12px; border-bottom: 1px solid var(--border); }
@@ -59,7 +62,7 @@
     @keyframes pa { 0%,100%{box-shadow:0 0 6px var(--amber);} 50%{box-shadow:0 0 14px var(--amber),0 0 24px rgba(255,171,0,.3);} }
     .count-badge { background: rgba(245,246,250,0.1); border: 1px solid var(--border); border-radius: 20px; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 600; padding: 2px 10px; color: var(--muted); }
     .card-body { flex: 1; display: flex; flex-direction: column; }
-    .project-row { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; gap: 2px 14px; padding: 14px 18px; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+    .project-row { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; padding: 14px 18px; border-bottom: 1px solid var(--border); transition: background 0.15s; }
     .project-row:last-child { border-bottom: none; }
     .project-row:hover { background: rgba(245,246,250,0.04); }
     .field-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 2px; }
@@ -76,9 +79,42 @@
     .card-error-box strong { display: block; font-size: 13px; margin-bottom: 6px; color: #ff6b8a; }
     .signin-box { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 40px 20px; text-align: center; min-height: 200px; }
     .signin-box p { color: var(--muted); font-size: 13px; max-width: 320px; line-height: 1.6; }
-    .footer { margin-top: 18px; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+
+    /* ── PRODUCTION STATS SECTION ── */
+    .production-section { margin-top: 18px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; backdrop-filter: blur(12px); overflow: hidden; }
+    .production-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; border-bottom: 1px solid var(--border); border-left: 3px solid var(--red); }
+    .production-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 14px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--white); display: flex; align-items: center; gap: 8px; }
+    .production-title .prod-icon { font-size: 15px; }
+    .production-job { font-size: 11px; color: var(--muted); font-family: 'Barlow', sans-serif; font-weight: 400; letter-spacing: 0; text-transform: none; }
+    .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; }
+    .stat-tile { padding: 16px 14px; border-right: 1px solid var(--border); text-align: center; transition: background 0.15s; }
+    .stat-tile:last-child { border-right: none; }
+    .stat-tile:hover { background: rgba(245,246,250,0.04); }
+    .stat-label { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 8px; }
+    .stat-value { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 700; color: var(--white); line-height: 1; }
+    .stat-value.highlight { color: var(--green); }
+    .stat-value.dimmed { color: var(--muted); font-size: 16px; }
+    .stat-unit { font-size: 10px; color: var(--muted); margin-top: 4px; letter-spacing: 0.5px; }
+    .progress-bar-wrap { padding: 12px 18px 16px; border-top: 1px solid var(--border); }
+    .progress-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    .progress-label strong { color: var(--white); }
+    .progress-track { height: 6px; background: rgba(245,246,250,0.1); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--green), #00e89a); transition: width 0.8s ease; }
+    .progress-fill.warn { background: linear-gradient(90deg, var(--amber), #ffd04d); }
+    .production-state { padding: 24px 18px; text-align: center; color: var(--muted); font-size: 13px; }
+    .production-error { margin: 12px 14px 14px; background: rgba(218,0,57,0.12); border: 1px solid rgba(218,0,57,0.35); border-radius: 8px; padding: 12px; font-size: 12px; color: #ff8fa3; }
+
+    /* ── FOOTER ── */
+    .footer { margin-top: 14px; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
     .spinner { width: 22px; height: 22px; border: 3px solid rgba(245,246,250,0.15); border-top-color: rgba(245,246,250,0.6); border-radius: 50%; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 540px) {
+      .stats-grid { grid-template-columns: repeat(3, 1fr); }
+      .stat-tile:nth-child(3) { border-right: none; }
+      .stat-tile:nth-child(4), .stat-tile:nth-child(5) { border-top: 1px solid var(--border); }
+    }
   </style>
 </head>
 <body>
@@ -100,6 +136,7 @@
   </div>
 </div>
 
+<!-- Project Cards -->
 <div class="cards-grid">
   <div class="status-card card--active">
     <div class="card-header">
@@ -121,6 +158,21 @@
   </div>
 </div>
 
+<!-- Production Stats -->
+<div class="production-section">
+  <div class="production-header">
+    <div class="production-title">
+      <span class="prod-icon">⛏</span>
+      Production Tonnage
+      <span class="production-job" id="prodJobLabel"></span>
+    </div>
+    <div style="font-size:11px;color:var(--muted);">Time &amp; Production Entry</div>
+  </div>
+  <div id="prodBody">
+    <div class="production-state"><div class="spinner" style="margin:0 auto;"></div></div>
+  </div>
+</div>
+
 <div class="footer">
   <div>Source: <strong>Project List</strong> · Machine = Y171 · UnitedDredging</div>
   <div id="statusLine"></div>
@@ -128,16 +180,16 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════
-// CONFIGURATION
-// Update CLIENT_ID after registering the app in Azure AD
-// (see instructions below)
+// CONFIG
 // ═══════════════════════════════════════════════════════════
 const CLIENT_ID  = '69affe29-c1bc-4e7a-89f6-583211c1d3f2';
 const TENANT_ID  = 'f0c675e2-30ad-41ca-9424-b4eac122977b';
 const SITE_URL   = 'https://jddredging.sharepoint.com/sites/UnitedDredging';
 const LIST_NAME  = 'Project List';
+const PROD_LIST  = 'Time and Production Entry';
 const MACHINE    = 'Y171';
 
+// Project List columns
 const COLS = {
   machine:  'PossibleMachine',
   status:   'Status',
@@ -147,67 +199,278 @@ const COLS = {
   tonnage:  'Requested_x0020_Dredge_x0020_amo',
 };
 
+// Production Entry columns
+const PROD = {
+  date:         'Date',
+  project:      'Project',              // Lookup → Project List Title
+  jobName:      'Job_x0020_Name',       // Choice fallback
+  buckets:      'Yarder_x0020_Buckets',
+  yardsPerBkt:  'YardsPerBucket_x0028_Number_x002',
+  tonsPerYard:  'TonsPerYard_x0028_Number_x0029_',
+  actualTons:   'AcutalTons',           // pre-calculated fallback
+};
+
 const REFRESH_MS = 2 * 60 * 1000;
 let timer = null;
 let msalInstance = null;
 let accessToken  = null;
+let activeProjectTitle = null; // set after project cards load
 
 // ── MSAL SETUP ────────────────────────────────────────────
 const msalConfig = {
   auth: {
-    clientId:   CLIENT_ID,
-    authority:  `https://login.microsoftonline.com/${TENANT_ID}`,
+    clientId:    CLIENT_ID,
+    authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
     redirectUri: window.location.href.split('?')[0],
   },
   cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false }
 };
+const loginRequest = { scopes: [`https://jddredging.sharepoint.com/AllSites.Read`] };
 
-const loginRequest = {
-  scopes: [`https://jddredging.sharepoint.com/AllSites.Read`]
-};
+// ── HELPERS ───────────────────────────────────────────────
+function getCustomer(item) {
+  const c = item[COLS.customer];
+  if (!c) return '—';
+  if (typeof c === 'string') return c;
+  if (c?.Title) return c.Title;
+  return '—';
+}
 
-// ── RENDER ────────────────────────────────────────────────
-const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-const val = v => (v !== null && v !== undefined && String(v).trim()) ? esc(String(v).trim()) : '—';
-const ton = raw => {
-  if (raw === null || raw === undefined || raw === '') return '—';
-  const n = parseFloat(String(raw).replace(/,/g,''));
-  return isNaN(n) ? esc(String(raw)) : n.toLocaleString('en-US') + ' T';
-};
+function getMultiChoice(item, col) {
+  const v = item[col];
+  if (!v) return '—';
+  if (typeof v === 'string') return v;
+  if (v?.results && Array.isArray(v.results)) return v.results.join(', ') || '—';
+  return String(v);
+}
 
-function renderRows(items) {
-  if (!items.length) return `<div class="card-state" style="font-style:italic">No Y171 projects found</div>`;
+function val(v) { return v || '—'; }
+
+function fmtTons(n) {
+  if (!n && n !== 0) return '—';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return Math.round(n).toLocaleString();
+}
+
+// Date range helpers — all in local time
+function today()     { const d = new Date(); d.setHours(0,0,0,0); return d; }
+function yesterday() { const d = today(); d.setDate(d.getDate()-1); return d; }
+
+function weekStart(offset = 0) {
+  const d = today();
+  const day = d.getDay(); // 0=Sun
+  d.setDate(d.getDate() - day + offset * 7); // Monday of target week... use Sun start
+  d.setDate(d.getDate() - day);
+  return d;
+}
+
+function getDateRanges() {
+  const now  = new Date();
+  const tod  = today();
+  const yest = yesterday();
+  const yestEnd = new Date(yest); yestEnd.setHours(23,59,59,999);
+
+  // This week: Sun–Sat
+  const thisWeekStart = new Date(tod);
+  thisWeekStart.setDate(tod.getDate() - tod.getDay());
+  const thisWeekEnd = new Date(thisWeekStart); thisWeekEnd.setDate(thisWeekStart.getDate() + 6); thisWeekEnd.setHours(23,59,59,999);
+
+  // Last week
+  const lastWeekStart = new Date(thisWeekStart); lastWeekStart.setDate(thisWeekStart.getDate() - 7);
+  const lastWeekEnd   = new Date(thisWeekStart); lastWeekEnd.setDate(thisWeekStart.getDate() - 1); lastWeekEnd.setHours(23,59,59,999);
+
+  // This month
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const thisMonthEnd   = new Date(now.getFullYear(), now.getMonth()+1, 0, 23, 59, 59, 999);
+
+  // Last month
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const lastMonthEnd   = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+  return { yest, yestEnd, thisWeekStart, thisWeekEnd, lastWeekStart, lastWeekEnd, thisMonthStart, thisMonthEnd, lastMonthStart, lastMonthEnd };
+}
+
+// ── RENDER: Project Cards ──────────────────────────────────
+function val2(v) { return v || '—'; }
+
+function renderRows(items, accentClass) {
+  if (!items.length) return `<div class="card-state" style="color:var(--muted);font-style:italic">No ${MACHINE} projects found</div>`;
   return items.map(item => `
     <div class="project-row">
-      <div class="cell-customer"><div class="field-label">Customer / Company</div><div class="field-value">${getCustomer(item)}</div></div>
-      <div class="cell-location"><div class="field-label">Project Location</div><div class="field-value">${val(item[COLS.location])}</div></div>
-      <div class="cell-product"><div class="field-label">Product / Work</div><div class="field-value">${getMultiChoice(item, COLS.product)}</div></div>
-      <div class="cell-tonnage"><div class="field-label">Contracted Tonnage</div><div class="field-value tonnage">${ton(item[COLS.tonnage])}</div></div>
+      <div class="cell-customer">
+        <div class="field-label">Customer / Company</div>
+        <div class="field-value">${getCustomer(item)}</div>
+      </div>
+      <div class="cell-location">
+        <div class="field-label">Project Location</div>
+        <div class="field-value">${val2(item[COLS.location])}</div>
+      </div>
+      <div class="cell-product">
+        <div class="field-label">Product / Work</div>
+        <div class="field-value">${getMultiChoice(item, COLS.product)}</div>
+      </div>
+      <div class="cell-tonnage">
+        <div class="field-label">Contracted Tonnage</div>
+        <div class="field-value tonnage">${val2(item[COLS.tonnage] ? Number(item[COLS.tonnage]).toLocaleString() + ' T' : null)}</div>
+      </div>
     </div>`).join('');
 }
 
 function setCards(activeItems, mobilItems) {
-  document.getElementById('activeBody').innerHTML   = renderRows(activeItems);
+  document.getElementById('activeBody').innerHTML  = renderRows(activeItems, 'card--active');
+  document.getElementById('mobilBody').innerHTML   = renderRows(mobilItems,  'card--mobil');
   document.getElementById('activeCount').textContent = activeItems.length;
-  document.getElementById('mobilBody').innerHTML    = renderRows(mobilItems);
   document.getElementById('mobilCount').textContent  = mobilItems.length;
-  const t = new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-  document.getElementById('lastUpdated').textContent = 'Updated ' + t;
-  document.getElementById('statusLine').textContent  = 'Authenticated · ' + t;
   document.getElementById('refreshBtn').classList.remove('loading');
   document.getElementById('refreshBtn').textContent = '↻ Refresh';
-  clearTimeout(timer);
+  document.getElementById('lastUpdated').textContent = `Updated ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+  document.getElementById('statusLine').textContent = `Authenticated · ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+
+  // Save the first active project title for production lookup
+  if (activeItems.length > 0) {
+    const first = activeItems[0];
+    activeProjectTitle = getCustomer(first) || null;
+    // Also try the location field as a possible job name match
+    // We'll match production entries by Project lookup Title
+    // Store the full item for reference
+    window._activeProjectItem = first;
+  }
+
+  if (timer) clearTimeout(timer);
   timer = setTimeout(loadData, REFRESH_MS);
 }
 
-function showSignIn() {
-  const html = `
-    <div class="signin-box">
-      <p>Sign in with your Microsoft account to load live project data.</p>
-      <button class="btn btn-signin" onclick="signIn()">🔐 Sign in with Microsoft</button>
+// ── RENDER: Production Stats ───────────────────────────────
+function renderStats(stats, jobName, contractedTons) {
+  const pct = contractedTons > 0 ? Math.min((stats.total / contractedTons) * 100, 100) : null;
+
+  document.getElementById('prodJobLabel').textContent = jobName ? `— ${jobName}` : '';
+
+  const tiles = [
+    { label: 'Yesterday',   value: stats.yesterday,  highlight: true },
+    { label: 'This Week',   value: stats.thisWeek,   highlight: false },
+    { label: 'Last Week',   value: stats.lastWeek,   highlight: false },
+    { label: 'This Month',  value: stats.thisMonth,  highlight: false },
+    { label: 'Last Month',  value: stats.lastMonth,  highlight: false },
+  ];
+
+  const tilesHtml = tiles.map(t => `
+    <div class="stat-tile">
+      <div class="stat-label">${t.label}</div>
+      <div class="stat-value ${t.value > 0 ? (t.highlight ? 'highlight' : '') : 'dimmed'}">${fmtTons(t.value)}</div>
+      <div class="stat-unit">tons</div>
+    </div>`).join('');
+
+  const progressHtml = pct !== null ? `
+    <div class="progress-bar-wrap">
+      <div class="progress-label">
+        <span>Project Progress</span>
+        <span><strong>${fmtTons(stats.total)} T</strong> of ${Number(contractedTons).toLocaleString()} T contracted (${pct.toFixed(1)}%)</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill ${pct > 85 ? 'warn' : ''}" style="width:${pct}%"></div>
+      </div>
+    </div>` : `
+    <div class="progress-bar-wrap">
+      <div class="progress-label"><span>Total production for active project</span><strong>${fmtTons(stats.total)} T</strong></div>
     </div>`;
+
+  document.getElementById('prodBody').innerHTML = `
+    <div class="stats-grid">${tilesHtml}</div>
+    ${progressHtml}`;
+}
+
+// ── FETCH: Project List ────────────────────────────────────
+async function fetchByStatus(token, status) {
+  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(LIST_NAME)}')/items`
+            + `?$select=Id,${COLS.status},${COLS.machine},${COLS.location},${COLS.product},${COLS.tonnage},${COLS.customer}/Title`
+            + `&$expand=${COLS.customer}`
+            + `&$top=500`;
+
+  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
+  if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} — ${e.slice(0,300)}`); }
+  const all = (await r.json())?.d?.results ?? [];
+
+  return all.filter(item => {
+    const m = item[COLS.machine];
+    const machineMatch = m === MACHINE
+      || (typeof m === 'string' && m.split(';#').includes(MACHINE))
+      || (m?.results && m.results.includes(MACHINE));
+    return machineMatch && item[COLS.status] === status;
+  });
+}
+
+// ── FETCH: Production Data ─────────────────────────────────
+async function fetchProduction(token, projectTitle) {
+  // Fetch recent production entries — get up to 2 months back to cover all ranges
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 2);
+  const cutoffISO = cutoff.toISOString();
+
+  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
+            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`
+            + `&$expand=${PROD.project}`
+            + `&$filter=${PROD.date} ge datetime'${cutoffISO}'`
+            + `&$top=2000`
+            + `&$orderby=${PROD.date} desc`;
+
+  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
+  if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`Production fetch HTTP ${r.status} — ${e.slice(0,200)}`); }
+  const all = (await r.json())?.d?.results ?? [];
+
+  // Filter to entries matching our active project
+  const entries = all.filter(item => {
+    const proj = item[PROD.project];
+    const projTitle = proj?.Title || proj || '';
+    const jobName   = item[PROD.jobName] || '';
+    // Match by Project lookup title or Job Name choice field
+    return projTitle === projectTitle || jobName === projectTitle;
+  });
+
+  return entries;
+}
+
+// ── CALC: Tonnage per entry ────────────────────────────────
+function calcTons(entry) {
+  const buckets     = parseFloat(entry[PROD.buckets])    || 0;
+  const yardsPerBkt = parseFloat(entry[PROD.yardsPerBkt]) || 0;
+  const tonsPerYard = parseFloat(entry[PROD.tonsPerYard]) || 0;
+
+  if (buckets > 0 && yardsPerBkt > 0 && tonsPerYard > 0) {
+    return buckets * yardsPerBkt * tonsPerYard;
+  }
+  // Fallback to pre-calculated field if formula fields missing
+  return parseFloat(entry[PROD.actualTons]) || 0;
+}
+
+// ── AGGREGATE tonnage into time buckets ───────────────────
+function aggregateTons(entries) {
+  const ranges = getDateRanges();
+  const stats = { yesterday: 0, thisWeek: 0, lastWeek: 0, thisMonth: 0, lastMonth: 0, total: 0 };
+
+  entries.forEach(entry => {
+    const rawDate = entry[PROD.date];
+    if (!rawDate) return;
+    const d = new Date(rawDate);
+    const tons = calcTons(entry);
+    stats.total += tons;
+
+    if (d >= ranges.yest       && d <= ranges.yestEnd)       stats.yesterday += tons;
+    if (d >= ranges.thisWeekStart && d <= ranges.thisWeekEnd) stats.thisWeek  += tons;
+    if (d >= ranges.lastWeekStart && d <= ranges.lastWeekEnd) stats.lastWeek  += tons;
+    if (d >= ranges.thisMonthStart && d <= ranges.thisMonthEnd) stats.thisMonth += tons;
+    if (d >= ranges.lastMonthStart && d <= ranges.lastMonthEnd) stats.lastMonth += tons;
+  });
+
+  return stats;
+}
+
+// ── SHOW STATES ───────────────────────────────────────────
+function showSignIn() {
+  const html = `<div class="signin-box"><p>Sign in with your Microsoft account to load live project data.</p><button class="btn btn-signin" onclick="signIn()">🔐 Sign in with Microsoft</button></div>`;
   document.getElementById('activeBody').innerHTML = html;
   document.getElementById('mobilBody').innerHTML  = `<div class="card-state" style="color:var(--muted);font-style:italic">Sign in to load data</div>`;
+  document.getElementById('prodBody').innerHTML   = `<div class="production-state">Sign in to view production data</div>`;
   document.getElementById('refreshBtn').classList.remove('loading');
   document.getElementById('refreshBtn').textContent = '↻ Refresh';
   document.getElementById('lastUpdated').textContent = 'Not signed in';
@@ -217,6 +480,7 @@ function showError(msg) {
   const html = `<div class="card-error-box"><strong>⚠ Error</strong>${msg}</div>`;
   document.getElementById('activeBody').innerHTML = html;
   document.getElementById('mobilBody').innerHTML  = html;
+  document.getElementById('prodBody').innerHTML   = `<div class="production-error">⚠ ${msg}</div>`;
   document.getElementById('refreshBtn').classList.remove('loading');
   document.getElementById('refreshBtn').textContent = '↻ Retry';
 }
@@ -228,7 +492,6 @@ async function signIn() {
     accessToken = result.accessToken;
     loadData();
   } catch(e) {
-    console.error('[Y171] Sign in failed:', e);
     showError(`Sign in failed: ${e.message}`);
   }
 }
@@ -237,127 +500,128 @@ async function getToken() {
   const accounts = msalInstance.getAllAccounts();
   if (!accounts.length) return null;
   try {
-    const result = await msalInstance.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
-    return result.accessToken;
+    const r = await msalInstance.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
+    return r.accessToken;
   } catch(e) {
-    // Silent failed — try popup
     try {
-      const result = await msalInstance.acquireTokenPopup({ ...loginRequest, account: accounts[0] });
-      return result.accessToken;
-    } catch(e2) {
-      return null;
-    }
+      const r = await msalInstance.acquireTokenPopup({ ...loginRequest, account: accounts[0] });
+      return r.accessToken;
+    } catch(e2) { return null; }
   }
 }
 
-// ── DATA FETCH ────────────────────────────────────────────
-async function fetchByStatus(token, status) {
-  // Customer/Company is a Lookup field - must use $expand
-  // PossibleMachine is a Choice field - filter client-side to avoid OData issues
-  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(LIST_NAME)}')/items`
-            + `?$select=Id,${COLS.status},${COLS.machine},${COLS.location},${COLS.product},${COLS.tonnage},${COLS.customer}/Title`
-            + `&$expand=${COLS.customer}`
-            + `&$top=500`;
-
-  const r = await fetch(url, {
-    headers: {
-      'Accept': 'application/json;odata=verbose',
-      'Authorization': `Bearer ${token}`
-    }
-  });
-
-  if (!r.ok) {
-    const errText = await r.text().catch(() => '');
-    throw new Error(`HTTP ${r.status} — ${errText.slice(0,300)}`);
-  }
-
-  const all = (await r.json())?.d?.results ?? [];
-
-  // Filter client-side: match machine and status
-  return all.filter(item => {
-    const m = item[COLS.machine];
-    const machineMatch = m === MACHINE
-      || (typeof m === 'string' && m.split(';#').includes(MACHINE))
-      || (m?.results && m.results.includes(MACHINE));
-    return machineMatch && item[COLS.status] === status;
-  });
-}
-
-// Helper: get customer name from lookup field
-function getCustomer(item) {
-  const c = item[COLS.customer];
-  if (!c) return '—';
-  if (typeof c === 'string') return c;
-  if (c?.Title) return c.Title;
-  return '—';
-}
-
-// Helper: get value from multi-choice field (returns array in .results)
-function getMultiChoice(item, col) {
-  const v = item[col];
-  if (!v) return '—';
-  if (typeof v === 'string') return v;
-  if (v?.results && Array.isArray(v.results)) return v.results.join(', ') || '—';
-  return String(v);
-}
-
+// ── LOAD ALL DATA ─────────────────────────────────────────
 async function loadData() {
   document.getElementById('refreshBtn').classList.add('loading');
   document.getElementById('refreshBtn').textContent = '↻ Loading…';
-
-  // Check config
-  if (CLIENT_ID === 'YOUR_APP_CLIENT_ID') {
-    showError(`Azure AD App not configured yet. See setup instructions in the page source (search for SETUP INSTRUCTIONS).`);
-    return;
-  }
 
   const token = await getToken();
   if (!token) { showSignIn(); return; }
 
   try {
+    // Step 1: Load project cards
     const [activeItems, mobilItems] = await Promise.all([
       fetchByStatus(token, 'Active'),
       fetchByStatus(token, 'Mobilization Scheduled')
     ]);
     setCards(activeItems, mobilItems);
+
+    // Step 2: Load production data for first active project
+    if (activeItems.length > 0) {
+      const activeItem = activeItems[0];
+      const projectTitle = activeItem[COLS.customer]?.Title
+                        || activeItem[COLS.customer]
+                        || activeItem[COLS.location]
+                        || '';
+      const contractedTons = parseFloat(activeItem[COLS.tonnage]) || 0;
+
+      try {
+        // Try matching by project lookup title — we'll try a few strategies
+        // First get all recent production for this machine's job
+        const allProd = await fetchAllProduction(token);
+
+        // Find the project name used in production entries by trying to match
+        const jobName = findJobName(allProd, activeItem);
+        const filtered = allProd.filter(entry => matchesProject(entry, activeItem));
+
+        if (filtered.length === 0 && allProd.length > 0) {
+          // Show all production if we can't match — useful for debugging
+          document.getElementById('prodJobLabel').textContent = '— (showing all entries, refine job match)';
+          const stats = aggregateTons(allProd);
+          renderStats(stats, 'All Entries', contractedTons);
+        } else {
+          const stats = aggregateTons(filtered);
+          renderStats(stats, jobName || projectTitle, contractedTons);
+        }
+      } catch(prodErr) {
+        document.getElementById('prodBody').innerHTML = `<div class="production-error">⚠ Production data error: ${prodErr.message}</div>`;
+      }
+    } else {
+      document.getElementById('prodBody').innerHTML = `<div class="production-state">No active project — production stats unavailable</div>`;
+    }
+
   } catch(err) {
     console.error('[Y171]', err);
-    showError(`${err.message} — check column names in COLS config.`);
+    showError(err.message);
   }
+}
+
+// Fetch all production entries from last 2 months (no project filter — filter client-side)
+async function fetchAllProduction(token) {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 2);
+
+  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
+            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`
+            + `&$expand=${PROD.project}`
+            + `&$filter=${PROD.date} ge datetime'${cutoff.toISOString()}'`
+            + `&$top=2000`
+            + `&$orderby=${PROD.date} desc`;
+
+  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
+  if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} — ${e.slice(0,200)}`); }
+  return (await r.json())?.d?.results ?? [];
+}
+
+// Try to match a production entry to the active project
+function matchesProject(entry, activeItem) {
+  const projLookup = entry[PROD.project]?.Title || '';
+  const jobChoice  = entry[PROD.jobName] || '';
+  const customer   = activeItem[COLS.customer]?.Title || activeItem[COLS.customer] || '';
+  const location   = activeItem[COLS.location] || '';
+
+  // Match if job name or project lookup contains customer name or location
+  const targets = [customer, location].filter(Boolean).map(s => s.toLowerCase());
+  const sources = [projLookup, jobChoice].map(s => s.toLowerCase());
+
+  return sources.some(src => targets.some(tgt => tgt && src && (src.includes(tgt) || tgt.includes(src))));
+}
+
+// Get the job name label from matching entries
+function findJobName(entries, activeItem) {
+  const matched = entries.find(e => matchesProject(e, activeItem));
+  if (!matched) return null;
+  return matched[PROD.project]?.Title || matched[PROD.jobName] || null;
 }
 
 // ── INIT ──────────────────────────────────────────────────
 async function init() {
-  if (CLIENT_ID === 'YOUR_APP_CLIENT_ID') {
-    showError(`
-      <strong style="color:#ffab00">⚙ One-time setup required</strong>
-      This widget needs a free Azure AD app registration to authenticate with SharePoint.
-      <br><br>
-      <strong>Steps (5 minutes):</strong><br>
-      1. Go to <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" style="color:#a8d8ff">portal.azure.com → App registrations</a><br>
-      2. Click <strong>New registration</strong><br>
-      3. Name: <code>Y171 Status Widget</code><br>
-      4. Supported account types: <strong>Single tenant</strong><br>
-      5. Redirect URI: <strong>Single-page application (SPA)</strong> → paste your GitHub Pages URL:<br>
-      <code>https://udadmin2026.github.io/Sharepoint/y171/</code><br>
-      6. Click <strong>Register</strong><br>
-      7. Copy the <strong>Application (client) ID</strong> and <strong>Directory (tenant) ID</strong><br>
-      8. Go to <strong>API permissions → Add → SharePoint → Delegated → AllSites.Read</strong> → Grant admin consent<br>
-      9. Paste both IDs into the <code>CLIENT_ID</code> and <code>TENANT_ID</code> constants at the top of this file
-    `);
-    return;
-  }
-
   msalInstance = new msal.PublicClientApplication(msalConfig);
   await msalInstance.initialize();
-
-  // Handle redirect response
   try { await msalInstance.handleRedirectPromise(); } catch(e) {}
-
   loadData();
 }
 
 init();
+
+// ── AUTO-HEIGHT ───────────────────────────────────────────
+function notifyHeight() {
+  const h = document.documentElement.scrollHeight;
+  window.parent.postMessage({ type: 'setHeight', height: h }, '*');
+  try { if (window.frameElement) window.frameElement.style.height = h + 'px'; } catch(e) {}
+}
+if (window.ResizeObserver) { new ResizeObserver(notifyHeight).observe(document.body); }
+window.addEventListener('load', notifyHeight);
 </script>
 </body>
 </html>
