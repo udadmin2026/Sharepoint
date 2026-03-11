@@ -329,52 +329,24 @@ const PROD = {
 
 const REFRESH_MS = 2 * 60 * 1000;
 let timer = null;
-let msalInstance = null;
-let accessToken  = null;
 let activeProjectTitle = null;
 
-// ── MSAL SETUP ────────────────────────────────────────────
+// ── MSAL CONFIG ───────────────────────────────────────────
+// Widget lives in a GitHub Pages iframe. Auth is done by navigating
+// window.top to the auth page (auth/index.html), which does a full
+// loginRedirect at top-level. On return, tokens are in localStorage
+// under github.io origin. The widget reads them with acquireTokenSilent.
+// We NEVER call ssoSilent or handleRedirectPromise here — both cause hangs in iframes.
 const msalConfig = {
   auth: {
-    clientId:    CLIENT_ID,
-    authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
+    clientId:   CLIENT_ID,
+    authority:  `https://login.microsoftonline.com/${TENANT_ID}`,
     redirectUri: 'https://udadmin2026.github.io/Sharepoint/auth/',
   },
-  cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true },
-  system: { iframeHashTimeout: 10000, loadFrameTimeout: 10000 }
+  cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
 };
-const loginRequest = { scopes: ['https://jddredging.sharepoint.com/AllSites.Read'] };
-
-// ── SHAREPOINT DIGEST AUTH ─────────────────────────────────
-// When embedded in SharePoint, we can get a request digest from the SP REST API
-// using credentials:'include' (session cookies) — no MSAL needed.
-// This works because the user's browser has SharePoint session cookies.
-let spDigestToken   = null;
-let spDigestExpiry  = 0;
-
-async function getSpDigestToken() {
-  const now = Math.floor(Date.now() / 1000);
-  if (spDigestToken && spDigestExpiry > now + 60) return spDigestToken;
-  try {
-    const r = await fetch(`${SITE_URL}/_api/contextinfo`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Accept': 'application/json;odata=verbose', 'Content-Type': 'application/json;odata=verbose' }
-    });
-    if (!r.ok) return null;
-    const data = await r.json();
-    const digest = data?.d?.GetContextWebInformation?.FormDigestValue;
-    if (!digest) return null;
-    const timeoutSec = data?.d?.GetContextWebInformation?.FormDigestTimeoutSeconds || 1800;
-    spDigestToken  = digest;
-    spDigestExpiry = now + timeoutSec;
-    statusMsg('Auth: SP session cookies working ✓');
-    return digest;
-  } catch(e) {
-    statusMsg('Auth: SP digest failed — ' + e.message.slice(0,50));
-    return null;
-  }
-}
+const TOKEN_SCOPE = ['https://jddredging.sharepoint.com/AllSites.Read'];
+let msalApp = null;
 
 
 
@@ -675,36 +647,18 @@ function renderStats(stats, jobName, contractedTons) {
 }
 
 // ── FETCH HELPER ──────────────────────────────────────────
-// Tries cookie auth first (works when embedded in SharePoint — same-origin cookies),
-// then falls back to Bearer token if provided.
 async function fetchSP(url, token, timeoutMs = 20000) {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
-
-  const headers = { 'Accept': 'application/json;odata=verbose' };
-  const opts = { signal: ctrl.signal, headers };
-
-  // If we have a digest token, use cookie-based auth (no Authorization header needed)
-  // Cookie auth works when the browser has SharePoint session cookies (embedded in SP page)
-  if (spDigestToken) {
-    // Cookie auth — browser sends SharePoint session cookies automatically
-    opts.credentials = 'include';
-  } else if (token && token !== '__cookie_auth__') {
-    headers['Authorization'] = 'Bearer ' + token;
-  }
-
   try {
-    const r = await fetch(url, opts);
+    const r = await fetch(url, {
+      signal: ctrl.signal,
+      headers: {
+        'Accept': 'application/json;odata=verbose',
+        'Authorization': 'Bearer ' + token
+      }
+    });
     clearTimeout(tid);
-
-    // If cookie auth got 401, retry with Bearer token if available
-    if (r.status === 401 && spDigestToken && token) {
-      statusMsg('Cookie auth 401 — retrying with Bearer token…');
-      const r2 = await fetch(url, {
-        headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': 'Bearer ' + token }
-      });
-      return r2;
-    }
     return r;
   } catch(e) {
     clearTimeout(tid);
@@ -747,7 +701,7 @@ async function fetchProduction(token, projectTitle) {
             + `&$top=2000`
             + `&$orderby=${PROD.date} desc`;
 
-  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
+  const r = await fetchSP(url, token);
   if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`Production fetch HTTP ${r.status} — ${e.slice(0,200)}`); }
   const all = (await r.json())?.d?.results ?? [];
 
@@ -812,139 +766,68 @@ function aggregateTons(entries, projectMultipliers) {
 }
 
 // ── SHOW STATES ───────────────────────────────────────────
-function showSignIn() {
-  const html = `<div class="signin-box"><p>Sign in with your Microsoft account to load live project data.</p><button class="btn btn-signin" onclick="signIn()">🔐 Sign in with Microsoft</button></div>`;
-  document.getElementById('activeBody').innerHTML = html;
-  document.getElementById('mobilBody').innerHTML  = `<div class="card-state" style="color:var(--muted);font-style:italic">Sign in to load data</div>`;
-  document.getElementById('prodBody').innerHTML   = `<div class="production-state">Sign in to view production data</div>`;
-  document.getElementById('refreshBtn').classList.remove('loading');
-  document.getElementById('refreshBtn').textContent = '↻ Refresh';
-  document.getElementById('lastUpdated').textContent = 'Not signed in';
-}
-
-function showError(msg) {
-  const html = `<div class="card-error-box"><strong>⚠ Error</strong>${msg}</div>`;
-  document.getElementById('activeBody').innerHTML = html;
-  document.getElementById('mobilBody').innerHTML  = html;
-  document.getElementById('prodBody').innerHTML   = `<div class="production-error">⚠ ${msg}</div>`;
-  document.getElementById('refreshBtn').classList.remove('loading');
-  document.getElementById('refreshBtn').textContent = '↻ Retry';
-}
-
-// ── AUTH ──────────────────────────────────────────────────
-// ── AUTH STRATEGY ─────────────────────────────────────────
-// 1. On load: try ssoSilent (reuses M365 session, no UI, works in iframe)
-// 2. If that fails: show sign-in button → open top-level auth window
-// 3. Auth window does loginRedirect freely (not in iframe), closes on success
-// 4. Widget polls, reinits MSAL, picks up token
-
-const AUTH_WINDOW_URL = 'https://udadmin2026.github.io/Sharepoint/auth/';
-
-async function signIn() {
-  // Navigate the TOP SharePoint frame to the auth page.
-  // The auth page will do loginRedirect (no iframe restrictions at top level),
-  // then redirect back to the SharePoint page after login.
-  // On return the full page reloads, MSAL picks up the token from localStorage,
-  // and the widget loads silently via acquireTokenSilent.
-  try {
-    const returnTo = encodeURIComponent(window.top.location.href);
-    window.top.location.href = AUTH_WINDOW_URL + '?returnTo=' + returnTo;
-  } catch(e) {
-    // Cross-origin frame access blocked — navigate the iframe itself
-    window.location.href = AUTH_WINDOW_URL + '?returnTo=' + encodeURIComponent(window.location.href);
-  }
-}
-
-// Reinitialize MSAL from scratch so it re-reads localStorage written by auth window
-async function reinitMsal() {
-  try {
-    msalInstance = new window.msal.PublicClientApplication(msalConfig);
-    await msalInstance.initialize();
-    // Must call handleRedirectPromise after init to hydrate account cache from localStorage
-    await msalInstance.handleRedirectPromise().catch(() => {});
-    console.log('[Y171] MSAL reinit — accounts found:', msalInstance.getAllAccounts().length);
-  } catch(e) { console.warn('[Y171] MSAL reinit error:', e.message); }
-}
-
 function statusMsg(msg) {
-  // Show auth status in the UI so we don't need F12
-  document.getElementById('lastUpdated').textContent = msg;
+  const el = document.getElementById('lastUpdated');
+  if (el) el.textContent = msg;
   console.log('[Y171]', msg);
 }
 
-// Wrap a promise with a timeout
-function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(label + ' timed out after ' + ms + 'ms')), ms))
-  ]);
+function showError(msg) {
+  ['act-body','mob-body','prod-body','sidebar-body'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = `<div class="card-state" style="color:#ff6b6b">⚠ ${msg}</div>`;
+  });
+  statusMsg('Error');
+}
+
+function showSignIn() {
+  statusMsg('Sign in required — redirecting…');
+  const returnTo = encodeURIComponent('https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx');
+  const authUrl  = 'https://udadmin2026.github.io/Sharepoint/auth/?returnTo=' + returnTo;
+  try {
+    window.top.location.href = authUrl;
+  } catch(e) {
+    window.open(authUrl, '_blank');
+    statusMsg('Sign-in tab opened — after signing in, refresh this page.');
+  }
 }
 
 async function getToken() {
-  // Tier 0: Try SharePoint cookie/digest auth first
-  // This works when the widget is embedded in a SharePoint page — the user's
-  // browser session cookies authenticate automatically, no MSAL needed.
-  statusMsg('Auth: trying SP session cookies…');
-  const digest = await getSpDigestToken();
-  if (digest) {
-    // Cookie auth working — return a sentinel value so loadData proceeds
-    // fetchSP will use credentials:include instead of Authorization header
-    return '__cookie_auth__';
+  if (!msalApp) {
+    msalApp = new msal.PublicClientApplication(msalConfig);
+    await msalApp.initialize();
+    // NOTE: Do NOT call handleRedirectPromise() here.
+    // We are inside a SharePoint iframe. Calling handleRedirectPromise
+    // can clear the interaction_in_progress flag and corrupt MSAL cache state.
+    // The auth page handles the redirect response; we only do silent token retrieval.
   }
 
-  // Tier 1: acquireTokenSilent from cached accounts
-  const accounts = msalInstance.getAllAccounts();
-  statusMsg('Auth: checking ' + accounts.length + ' cached accounts…');
-  if (accounts.length > 0) {
-    for (const account of accounts) {
-      try {
-        statusMsg('Auth: silent refresh for ' + account.username + '…');
-        const r = await withTimeout(
-          msalInstance.acquireTokenSilent({ scopes: loginRequest.scopes, account }),
-          8000, 'acquireTokenSilent'
-        );
-        statusMsg('Auth: token acquired ✓');
-        return r.accessToken;
-      } catch(e) { statusMsg('Auth: silent failed — ' + e.message.slice(0, 60)); }
+  const accounts = msalApp.getAllAccounts();
+  statusMsg('Auth: ' + accounts.length + ' cached account(s)…');
+
+  for (const account of accounts) {
+    try {
+      const result = await msalApp.acquireTokenSilent({ scopes: TOKEN_SCOPE, account });
+      statusMsg('Token acquired ✓');
+      return result.accessToken;
+    } catch(e) {
+      console.warn('[Y171] acquireTokenSilent failed for', account.username, ':', e.message);
     }
   }
 
-  // Tier 2: ssoSilent with timeout (can hang indefinitely without one)
-  try {
-    statusMsg('Auth: trying SSO silent…');
-    const r = await withTimeout(
-      msalInstance.ssoSilent({ scopes: loginRequest.scopes }),
-      8000, 'ssoSilent'
-    );
-    try {
-      const payload = JSON.parse(atob(r.accessToken.split('.')[1]));
-      const aud = (payload.aud || '').toLowerCase();
-      statusMsg('Auth: ssoSilent got token, aud=' + aud.slice(0,30));
-      if (!aud.includes('sharepoint')) { statusMsg('Auth: wrong audience — need sign in'); return null; }
-    } catch(e) {}
-    statusMsg('Auth: SSO token acquired ✓');
-    return r.accessToken;
-  } catch(e) {
-    statusMsg('Auth: SSO failed — ' + e.message.slice(0, 60));
-    return null;
-  }
+  // No valid cached token — send to auth page
+  statusMsg('No session — sign in needed');
+  setTimeout(showSignIn, 800);
+  return null;
 }
 
-function showSignInPending() {
-  const html = '<div class="signin-box"><p>Sign in window opened — complete sign in then this page will reload automatically.</p><div class="spinner" style="margin:12px auto 0"></div></div>';
-  document.getElementById('activeBody').innerHTML  = html;
-  document.getElementById('mobilBody').innerHTML   = '<div class="card-state" style="color:var(--muted);font-style:italic">Waiting for sign in…</div>';
-  document.getElementById('prodBody').innerHTML    = '<div class="production-state">Waiting for sign in…</div>';
-  document.getElementById('lastUpdated').textContent = 'Signing in…';
-}
 
-// ── LOAD ALL DATA ─────────────────────────────────────────
 async function loadData() {
   document.getElementById('refreshBtn').classList.add('loading');
   document.getElementById('refreshBtn').textContent = '↻ Loading…';
 
-  const token = await getToken();
-  if (!token) { showSignIn(); return; }
+  let token;
+  try { token = await getToken(); } catch(e) { showError(e.message); return; }
 
   try {
     // Step 1: Load project cards
@@ -1164,24 +1047,16 @@ All localStorage keys:
     } catch(e) { out += k + ': ' + e.message + '
 '; }
   });
-  const directToken = getTokenFromStorage();
-  out += '
-getTokenFromStorage(): ' + (directToken ? '[FOUND - ' + directToken.length + ' chars]' : 'NULL');
+  if (msalApp) {
+    const accts = msalApp.getAllAccounts();
+    out += "\nMSAL accounts: " + accts.length;
+    accts.forEach(a => { out += "\n  - " + (a.username || a.localAccountId); });
+  } else { out += "\nMSAL not initialized"; }
   bar.textContent = out;
 }
 
 // ── INIT ──────────────────────────────────────────────────
 async function init() {
-  msalInstance = new window.msal.PublicClientApplication(msalConfig);
-  await msalInstance.initialize();
-
-  try {
-    const redirectResult = await msalInstance.handleRedirectPromise();
-    if (redirectResult && redirectResult.accessToken) {
-      loadData(); return;
-    }
-  } catch(e) { console.warn('[Y171] Redirect handling:', e.message); }
-
   loadData();
 }
 
