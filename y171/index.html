@@ -824,36 +824,55 @@ async function reinitMsal() {
   } catch(e) { console.warn('[Y171] MSAL reinit error:', e.message); }
 }
 
+function statusMsg(msg) {
+  // Show auth status in the UI so we don't need F12
+  document.getElementById('lastUpdated').textContent = msg;
+  console.log('[Y171]', msg);
+}
+
+// Wrap a promise with a timeout
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(label + ' timed out after ' + ms + 'ms')), ms))
+  ]);
+}
+
 async function getToken() {
-  // Tier 1: acquireTokenSilent — works after auth page sets tokens in localStorage
+  // Tier 1: acquireTokenSilent from cached accounts
   const accounts = msalInstance.getAllAccounts();
-  console.log('[Y171] getToken — accounts:', accounts.length);
+  statusMsg('Auth: checking ' + accounts.length + ' cached accounts…');
   if (accounts.length > 0) {
     for (const account of accounts) {
       try {
-        const r = await msalInstance.acquireTokenSilent({ scopes: loginRequest.scopes, account });
-        console.log('[Y171] Token from acquireTokenSilent, account:', account.username);
+        statusMsg('Auth: silent refresh for ' + account.username + '…');
+        const r = await withTimeout(
+          msalInstance.acquireTokenSilent({ scopes: loginRequest.scopes, account }),
+          8000, 'acquireTokenSilent'
+        );
+        statusMsg('Auth: token acquired ✓');
         return r.accessToken;
-      } catch(e) { console.log('[Y171] acquireTokenSilent failed for', account.username, ':', e.message); }
+      } catch(e) { statusMsg('Auth: silent failed — ' + e.message.slice(0, 60)); }
     }
   }
 
-  // Tier 2: ssoSilent — reuse active M365 session cookie
+  // Tier 2: ssoSilent with timeout (can hang indefinitely without one)
   try {
-    const r = await msalInstance.ssoSilent({ scopes: loginRequest.scopes });
-    // Validate audience is SharePoint
+    statusMsg('Auth: trying SSO silent…');
+    const r = await withTimeout(
+      msalInstance.ssoSilent({ scopes: loginRequest.scopes }),
+      8000, 'ssoSilent'
+    );
     try {
       const payload = JSON.parse(atob(r.accessToken.split('.')[1]));
-      const aud = payload.aud || '';
-      console.log('[Y171] ssoSilent audience:', aud);
-      if (!aud.toLowerCase().includes('sharepoint')) {
-        console.log('[Y171] Wrong audience, discarding');
-        return null;
-      }
+      const aud = (payload.aud || '').toLowerCase();
+      statusMsg('Auth: ssoSilent got token, aud=' + aud.slice(0,30));
+      if (!aud.includes('sharepoint')) { statusMsg('Auth: wrong audience — need sign in'); return null; }
     } catch(e) {}
+    statusMsg('Auth: SSO token acquired ✓');
     return r.accessToken;
   } catch(e) {
-    console.log('[Y171] ssoSilent failed:', e.message);
+    statusMsg('Auth: SSO failed — ' + e.message.slice(0, 60));
     return null;
   }
 }
