@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>Y171 — Project Status</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -27,7 +27,7 @@
         radial-gradient(ellipse 80% 60% at 10% 0%, rgba(35,45,99,0.6) 0%, transparent 60%),
         radial-gradient(ellipse 60% 50% at 90% 100%, rgba(218,0,57,0.08) 0%, transparent 55%),
         var(--navy);
-      padding: 20px;
+      padding: 16px;
     }
 
     /* ── HEADER ── */
@@ -109,11 +109,51 @@
     .spinner { width: 22px; height: 22px; border: 3px solid rgba(245,246,250,0.15); border-top-color: rgba(245,246,250,0.6); border-radius: 50%; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── JOB DETAILS CARD ── */
+    .job-details-section { margin-top: 18px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; backdrop-filter: blur(12px); overflow: hidden; }
+    .job-details-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; border-bottom: 1px solid var(--border); border-left: 3px solid var(--amber); cursor: pointer; user-select: none; }
+    .job-details-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 14px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--white); display: flex; align-items: center; gap: 8px; }
+    .job-details-toggle { font-size: 12px; color: var(--muted); transition: transform 0.2s; }
+    .job-details-toggle.open { transform: rotate(180deg); }
+    .job-details-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+    .job-details-body.collapsed { display: none; }
+    .jd-field { padding: 12px 18px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
+    .jd-field:nth-child(even) { border-right: none; }
+    .jd-field.full-width { grid-column: 1 / -1; border-right: none; }
+    .jd-field:last-child, .jd-field:nth-last-child(2):not(.full-width) { border-bottom: none; }
+    .jd-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+    .jd-value { font-size: 13px; font-weight: 500; color: var(--white); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .jd-value.date { font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; color: var(--amber); }
+    .jd-value.crew { font-weight: 600; color: var(--green); }
+    .jd-state { padding: 20px 18px; text-align: center; color: var(--muted); font-size: 13px; }
+
     /* ── RESPONSIVE ── */
-    @media (max-width: 540px) {
+    @media (max-width: 600px) {
+      body { padding: 12px; }
+      .header { margin-bottom: 16px; }
+      .header-title { font-size: 20px; }
+      .unit-badge { font-size: 18px; padding: 5px 10px; }
+      .cards-grid { grid-template-columns: 1fr; }
       .stats-grid { grid-template-columns: repeat(3, 1fr); }
       .stat-tile:nth-child(3) { border-right: none; }
       .stat-tile:nth-child(4), .stat-tile:nth-child(5) { border-top: 1px solid var(--border); }
+      .stat-value { font-size: 18px; }
+      .project-row { grid-template-columns: 1fr; }
+      .cell-location, .cell-tonnage { grid-column: 1; padding-top: 10px; }
+      .cell-location { grid-row: 2; }
+      .cell-product  { grid-row: 3; }
+      .cell-tonnage  { grid-row: 4; }
+      .progress-label { flex-direction: column; gap: 2px; }
+      .job-details-body { grid-template-columns: 1fr; }
+      .jd-field { border-right: none !important; }
+      .jd-field:last-child { border-bottom: none; }
+    }
+    @media (max-width: 380px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .stat-tile:nth-child(2) { border-right: none; }
+      .stat-tile:nth-child(3), .stat-tile:nth-child(4), .stat-tile:nth-child(5) { border-top: 1px solid var(--border); }
+      .stat-tile:nth-child(3) { border-right: 1px solid var(--border); }
+      .stat-tile:nth-child(4) { border-right: none; }
     }
   </style>
 </head>
@@ -158,6 +198,17 @@
   </div>
 </div>
 
+<!-- Job Details -->
+<div class="job-details-section" id="jobDetailsSection" style="display:none">
+  <div class="job-details-header" onclick="toggleJobDetails()">
+    <div class="job-details-title">📋 Job Details<span id="jobDetailsProject" style="font-weight:400;letter-spacing:0;text-transform:none;font-size:12px;color:var(--muted);margin-left:4px;"></span></div>
+    <div class="job-details-toggle" id="jobDetailsToggle">▼</div>
+  </div>
+  <div class="job-details-body" id="jobDetailsBody">
+    <div class="jd-state"><div class="spinner" style="margin:0 auto;"></div></div>
+  </div>
+</div>
+
 <!-- Production Stats -->
 <div class="production-section">
   <div class="production-header">
@@ -187,6 +238,7 @@ const TENANT_ID  = 'f0c675e2-30ad-41ca-9424-b4eac122977b';
 const SITE_URL   = 'https://jddredging.sharepoint.com/sites/UnitedDredging';
 const LIST_NAME  = 'Project List';
 const PROD_LIST  = 'Time and Production Entry';
+const JOB_LIST   = 'Job Checklist';
 const MACHINE    = 'Y171';
 
 // Project List columns
@@ -200,6 +252,20 @@ const COLS = {
   bucketSize:   'YarderBucketSize',   // yards per bucket (from Project List)
   tonsPerYd:    'Tons_x002f_Yd',      // tons per yard (from Project List)
   tonsBucket:   'Tons_x002f_Bucket',  // pre-calc tons/bucket (from Project List)
+};
+
+// Job Checklist columns
+const JOB = {
+  project:     'Pit_x002f_Project',               // Lookup → Project List
+  startDate:   'StartDate',
+  crew:        'Crew',                             // MultiChoice
+  rental:      'RentalComments',
+  fuel:        'FuelCompany',
+  pitContact:  'PitContactName_x002f_Number',
+  mobilize:    'MobilizationCompanyandContact',
+  portaPotty:  'PortaPottyCompany',
+  hotel:       'HotelInformation',
+  notes:       'Notes',
 };
 
 // Production Entry columns
@@ -546,6 +612,15 @@ async function loadData() {
       const activeItem = activeItems[0];
       const contractedTons = parseFloat(activeItem[COLS.tonnage]) || 0;
 
+      // Step 2b: Load Job Checklist for active project
+      try {
+        const jobRecord = await fetchJobChecklist(token, activeItem.Title || '');
+        renderJobDetails(jobRecord, activeItem.Title || '');
+      } catch(jobErr) {
+        console.warn('[Y171] Job checklist error:', jobErr);
+        renderJobDetails(null, activeItem.Title || '');
+      }
+
       try {
         // Try matching by project lookup title — we'll try a few strategies
         // First get all recent production for this machine's job
@@ -631,6 +706,79 @@ function findJobName(entries, activeItem) {
   const matched = entries.find(e => matchesProject(e, activeItem));
   if (!matched) return null;
   return matched[PROD.project]?.Title || activeItem.Title || null;
+}
+
+// ── JOB DETAILS TOGGLE ───────────────────────────────────
+let jobDetailsOpen = true;
+function toggleJobDetails() {
+  jobDetailsOpen = !jobDetailsOpen;
+  document.getElementById('jobDetailsBody').classList.toggle('collapsed', !jobDetailsOpen);
+  document.getElementById('jobDetailsToggle').classList.toggle('open', jobDetailsOpen);
+}
+
+// ── FETCH: Job Checklist ──────────────────────────────────
+async function fetchJobChecklist(token, projectTitle) {
+  const fields = `Id,${JOB.startDate},${JOB.crew},${JOB.rental},${JOB.fuel},${JOB.pitContact},${JOB.mobilize},${JOB.portaPotty},${JOB.hotel},${JOB.notes},${JOB.project}/Title`;
+  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(JOB_LIST)}')/items`
+            + `?$select=${fields}&$expand=${JOB.project}&$top=500`;
+
+  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
+  if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`Job Checklist HTTP ${r.status} — ${e.slice(0,200)}`); }
+  const all = (await r.json())?.d?.results ?? [];
+
+  // Match by Pit/Project lookup title
+  return all.find(item => {
+    const t = (item[JOB.project]?.Title || '').trim().toLowerCase();
+    return t === projectTitle.trim().toLowerCase();
+  }) || null;
+}
+
+// ── RENDER: Job Details ───────────────────────────────────
+function renderJobDetails(job, projectTitle) {
+  const section = document.getElementById('jobDetailsSection');
+  const body    = document.getElementById('jobDetailsBody');
+  const label   = document.getElementById('jobDetailsProject');
+
+  section.style.display = '';
+  label.textContent = projectTitle ? `— ${projectTitle}` : '';
+
+  if (!job) {
+    body.innerHTML = `<div class="jd-state">No job checklist found for this project</div>`;
+    return;
+  }
+
+  function fmtDate(d) {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function fmtNote(v) { return (v || '').trim() || '—'; }
+  function fmtCrew(item) {
+    const c = item[JOB.crew];
+    if (!c) return '—';
+    if (typeof c === 'string') return c;
+    if (c?.results) return c.results.join(', ') || '—';
+    return String(c);
+  }
+
+  const startDate  = job[JOB.startDate];
+  const fields = [
+    { label: 'Start Date',             value: fmtDate(startDate),          cls: 'date' },
+    { label: 'Crew',                   value: fmtCrew(job),                 cls: 'crew' },
+    { label: 'Pit Contact',            value: fmtNote(job[JOB.pitContact]), cls: '' },
+    { label: 'Fuel Company',           value: fmtNote(job[JOB.fuel]),       cls: '' },
+    { label: 'Mobilization Company',   value: fmtNote(job[JOB.mobilize]),   cls: '' },
+    { label: 'Porta Potty Company',    value: fmtNote(job[JOB.portaPotty]), cls: '' },
+    { label: 'Hotel Information',      value: fmtNote(job[JOB.hotel]),      cls: '' },
+    { label: 'Rental Comments',        value: fmtNote(job[JOB.rental]),     cls: '' },
+    { label: 'Notes',                  value: fmtNote(job[JOB.notes]),      cls: '', fullWidth: true },
+  ];
+
+  // Pair fields into 2-col grid; Notes always full-width
+  body.innerHTML = fields.map(f => `
+    <div class="jd-field${f.fullWidth ? ' full-width' : ''}">
+      <div class="jd-label">${f.label}</div>
+      <div class="jd-value${f.cls ? ' ' + f.cls : ''}">${f.value}</div>
+    </div>`).join('');
 }
 
 // ── INIT ──────────────────────────────────────────────────
