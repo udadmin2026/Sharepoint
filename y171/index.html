@@ -810,26 +810,36 @@ async function signIn() {
 // This bypasses the in-memory instance which may not see tokens written by another window.
 function getTokenFromStorage() {
   try {
-    const prefix = 'msal.' + CLIENT_ID;
-    const scope  = 'https://jddredging.sharepoint.com/allsites.read';
-    const now    = Math.floor(Date.now() / 1000);
+    const now = Math.floor(Date.now() / 1000);
 
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (!key || !key.toLowerCase().startsWith(prefix.toLowerCase())) continue;
-      if (!key.toLowerCase().includes('accesstoken')) continue;
+      if (!key) continue;
+
+      // MSAL access token keys contain the clientId and 'accesstoken'
+      const kl = key.toLowerCase();
+      if (!kl.includes(CLIENT_ID.toLowerCase())) continue;
+      if (!kl.includes('accesstoken')) continue;
 
       try {
         const entry = JSON.parse(localStorage.getItem(key));
         if (!entry) continue;
-        // Check scope match
+
+        // Must contain the SharePoint scope
         const entryScope = (entry.target || entry.scopes || '').toLowerCase();
         if (!entryScope.includes('allsites.read')) continue;
-        // Check not expired (with 60s buffer)
-        const exp = parseInt(entry.expiresOn || entry.cachedAt || 0);
-        if (exp > 0 && exp < now + 60) continue;
-        if (entry.secret || entry.accessToken) {
-          return entry.secret || entry.accessToken;
+
+        // Skip if expired (expiresOn is Unix epoch seconds in MSAL cache)
+        const exp = parseInt(entry.expiresOn || 0);
+        if (exp > 0 && exp < now + 30) {
+          console.log('[Y171] Found token but expired at', new Date(exp*1000).toLocaleTimeString());
+          continue;
+        }
+
+        const token = entry.secret || entry.accessToken;
+        if (token) {
+          console.log('[Y171] Found valid token from localStorage, expires', exp > 0 ? new Date(exp*1000).toLocaleTimeString() : 'unknown');
+          return token;
         }
       } catch(e) { continue; }
     }
@@ -849,24 +859,29 @@ async function reinitMsal() {
 }
 
 async function getToken() {
-  // Tier 0: try reading directly from localStorage cache (works across window boundaries)
+  // Tier 0: direct localStorage read (survives cross-window cache writes)
   const cached = getTokenFromStorage();
-  if (cached) return cached;
+  if (cached) { console.log('[Y171] Token from localStorage'); return cached; }
 
-  // Tier 1: try MSAL in-memory accounts
+  // Tier 1: MSAL in-memory silent
   const accounts = msalInstance.getAllAccounts();
   if (accounts.length > 0) {
     try {
       const r = await msalInstance.acquireTokenSilent({ scopes: loginRequest.scopes, account: accounts[0] });
+      console.log('[Y171] Token from acquireTokenSilent');
       return r.accessToken;
-    } catch(e) { /* fall through */ }
+    } catch(e) { console.log('[Y171] acquireTokenSilent failed:', e.message); }
+  } else {
+    console.log('[Y171] No MSAL accounts in memory');
   }
 
-  // Tier 2: ssoSilent — reuse active M365 session cookie (works in iframe, no UI)
+  // Tier 2: ssoSilent (reuses M365 session cookie, works in iframe)
   try {
     const r = await msalInstance.ssoSilent({ scopes: loginRequest.scopes });
+    console.log('[Y171] Token from ssoSilent');
     return r.accessToken;
   } catch(e) {
+    console.log('[Y171] ssoSilent failed:', e.message);
     return null;
   }
 }
