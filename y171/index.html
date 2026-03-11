@@ -179,7 +179,7 @@ function renderRows(items) {
   if (!items.length) return `<div class="card-state" style="font-style:italic">No Y171 projects found</div>`;
   return items.map(item => `
     <div class="project-row">
-      <div class="cell-customer"><div class="field-label">Customer / Company</div><div class="field-value">${val(item[COLS.customer])}</div></div>
+      <div class="cell-customer"><div class="field-label">Customer / Company</div><div class="field-value">${getCustomer(item)}</div></div>
       <div class="cell-location"><div class="field-label">Project Location</div><div class="field-value">${val(item[COLS.location])}</div></div>
       <div class="cell-product"><div class="field-label">Product / Work</div><div class="field-value">${val(item[COLS.product])}</div></div>
       <div class="cell-tonnage"><div class="field-label">Contracted Tonnage</div><div class="field-value tonnage">${ton(item[COLS.tonnage])}</div></div>
@@ -252,10 +252,12 @@ async function getToken() {
 
 // ── DATA FETCH ────────────────────────────────────────────
 async function fetchByStatus(token, status) {
-  const select = ['Id', COLS.customer, COLS.location, COLS.product, COLS.tonnage].join(',');
-  const filter  = `${COLS.machine} eq '${MACHINE}' and ${COLS.status} eq '${status}'`;
+  // Customer/Company is a Lookup field - must use $expand
+  // PossibleMachine is a Choice field - filter client-side to avoid OData issues
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(LIST_NAME)}')/items`
-            + `?$select=${select}&$filter=${encodeURIComponent(filter)}&$orderby=Id desc&$top=50`;
+            + `?$select=Id,${COLS.status},${COLS.machine},${COLS.location},${COLS.product},${COLS.tonnage},${COLS.customer}/Title`
+            + `&$expand=${COLS.customer}`
+            + `&$top=500`;
 
   const r = await fetch(url, {
     headers: {
@@ -263,8 +265,31 @@ async function fetchByStatus(token, status) {
       'Authorization': `Bearer ${token}`
     }
   });
-  if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
-  return (await r.json())?.d?.results ?? [];
+
+  if (!r.ok) {
+    const errText = await r.text().catch(() => '');
+    throw new Error(`HTTP ${r.status} — ${errText.slice(0,300)}`);
+  }
+
+  const all = (await r.json())?.d?.results ?? [];
+
+  // Filter client-side: match machine and status
+  return all.filter(item => {
+    const m = item[COLS.machine];
+    const machineMatch = m === MACHINE
+      || (typeof m === 'string' && m.split(';#').includes(MACHINE))
+      || (m?.results && m.results.includes(MACHINE));
+    return machineMatch && item[COLS.status] === status;
+  });
+}
+
+// Helper: get customer name from lookup field
+function getCustomer(item) {
+  const c = item[COLS.customer];
+  if (!c) return '—';
+  if (typeof c === 'string') return c;
+  if (c?.Title) return c.Title;
+  return '—';
 }
 
 async function loadData() {
