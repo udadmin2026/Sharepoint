@@ -653,6 +653,24 @@ function renderStats(stats, jobName, contractedTons) {
     ${progressHtml}`;
 }
 
+// ── FETCH HELPER with timeout ─────────────────────────────
+async function fetchSP(url, token, timeoutMs = 20000) {
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': 'Bearer ' + token }
+    });
+    clearTimeout(tid);
+    return r;
+  } catch(e) {
+    clearTimeout(tid);
+    if (e.name === 'AbortError') throw new Error('Request timed out after ' + (timeoutMs/1000) + 's');
+    throw e;
+  }
+}
+
 // ── FETCH: Project List ────────────────────────────────────
 async function fetchByStatus(token, status) {
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(LIST_NAME)}')/items`
@@ -660,7 +678,7 @@ async function fetchByStatus(token, status) {
             + `&$expand=${COLS.customer}`
             + `&$top=500`;
 
-  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
+  const r = await fetchSP(url, token);
   if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} — ${e.slice(0,300)}`); }
   const all = (await r.json())?.d?.results ?? [];
 
@@ -912,8 +930,9 @@ async function loadData() {
     }
 
   } catch(err) {
-    console.error('[Y171]', err);
-    showError(err.message);
+    console.error('[Y171] loadData error:', err);
+    // Show detailed error — includes token validation failures and 401s
+    showError(err.message + (err.message.includes('401') ? ' — Token may be invalid or expired. Try refreshing.' : ''));
   }
 }
 
@@ -929,9 +948,7 @@ async function fetchAllProduction(token) {
   const MAX_PAGES = 20; // safety cap — 20 × 5000 = 100,000 entries max
 
   while (url && pageCount < MAX_PAGES) {
-    const r = await fetch(url, {
-      headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` }
-    });
+    const r = await fetchSP(url, token, 30000);
     if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} — ${e.slice(0,200)}`); }
     const data = await r.json();
     const results = data?.d?.results ?? [];
@@ -977,7 +994,7 @@ async function fetchJobChecklist(token, projectTitle) {
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(JOB_LIST)}')/items`
             + `?$select=${fields}&$expand=${JOB.project}&$top=500`;
 
-  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
+  const r = await fetchSP(url, token);
   if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`Job Checklist HTTP ${r.status} — ${e.slice(0,200)}`); }
   const all = (await r.json())?.d?.results ?? [];
 
