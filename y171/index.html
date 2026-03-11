@@ -338,11 +338,19 @@ const msalConfig = {
   auth: {
     clientId:    CLIENT_ID,
     authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
+    // Must match the redirectUri used by the auth page exactly —
+    // MSAL uses this to validate cached tokens from the same auth flow
     redirectUri: 'https://udadmin2026.github.io/Sharepoint/auth/',
   },
   cache: {
     cacheLocation: 'localStorage',
     storeAuthStateInCookie: true,
+  },
+  system: {
+    allowNativeBroker: false,
+    windowHashTimeout: 60000,
+    iframeHashTimeout: 10000,
+    loadFrameTimeout: 10000,
   }
 };
 const loginRequest = { scopes: ['https://jddredging.sharepoint.com/AllSites.Read'] };
@@ -799,28 +807,32 @@ async function reinitMsal() {
 }
 
 async function getToken() {
-  // Tier 1: MSAL acquireTokenSilent from in-memory cache
+  // Tier 1: acquireTokenSilent — works after auth page sets tokens in localStorage
   const accounts = msalInstance.getAllAccounts();
   console.log('[Y171] getToken — accounts:', accounts.length);
   if (accounts.length > 0) {
-    try {
-      const r = await msalInstance.acquireTokenSilent({ scopes: loginRequest.scopes, account: accounts[0] });
-      console.log('[Y171] Token from acquireTokenSilent');
-      return r.accessToken;
-    } catch(e) { console.log('[Y171] acquireTokenSilent failed:', e.message); }
+    for (const account of accounts) {
+      try {
+        const r = await msalInstance.acquireTokenSilent({ scopes: loginRequest.scopes, account });
+        console.log('[Y171] Token from acquireTokenSilent, account:', account.username);
+        return r.accessToken;
+      } catch(e) { console.log('[Y171] acquireTokenSilent failed for', account.username, ':', e.message); }
+    }
   }
 
-  // Tier 2: ssoSilent with explicit resource hint
+  // Tier 2: ssoSilent — reuse active M365 session cookie
   try {
     const r = await msalInstance.ssoSilent({ scopes: loginRequest.scopes });
-    // Validate token is actually for SharePoint (not Graph or other resource)
-    const payload = JSON.parse(atob(r.accessToken.split('.')[1]));
-    const aud = payload.aud || '';
-    console.log('[Y171] ssoSilent token audience:', aud);
-    if (!aud.includes('sharepoint.com')) {
-      console.log('[Y171] Wrong audience — discarding token');
-      return null;
-    }
+    // Validate audience is SharePoint
+    try {
+      const payload = JSON.parse(atob(r.accessToken.split('.')[1]));
+      const aud = payload.aud || '';
+      console.log('[Y171] ssoSilent audience:', aud);
+      if (!aud.toLowerCase().includes('sharepoint')) {
+        console.log('[Y171] Wrong audience, discarding');
+        return null;
+      }
+    } catch(e) {}
     return r.accessToken;
   } catch(e) {
     console.log('[Y171] ssoSilent failed:', e.message);
