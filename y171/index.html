@@ -270,8 +270,10 @@
 
 </div><!-- /page-layout -->
 
+<div id="debugBar" style="display:none;margin-bottom:8px;background:rgba(218,0,57,0.1);border:1px solid rgba(218,0,57,0.3);border-radius:8px;padding:10px 14px;font-size:11px;font-family:monospace;color:#ff8fa3;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;"></div>
 <div class="footer">
   <div>Source: <strong>Project List</strong> · Machine = Y171 · UnitedDredging</div>
+  <div><button onclick="debugDump()" style="background:none;border:1px solid rgba(245,246,250,0.2);color:rgba(245,246,250,0.4);font-size:10px;padding:2px 8px;border-radius:4px;cursor:pointer;">debug</button></div>
   <div id="statusLine"></div>
 </div>
 
@@ -803,8 +805,39 @@ async function signIn() {
   }, 1000);
 }
 
-// Reinitialize MSAL instance — forces re-read of localStorage cache
-// Required after auth window writes tokens; in-memory instance doesn't see them otherwise
+// Read a valid access token directly from MSAL's localStorage cache.
+// MSAL stores tokens under keys like: msal.<clientId>.accesstoken.<hash>
+// This bypasses the in-memory instance which may not see tokens written by another window.
+function getTokenFromStorage() {
+  try {
+    const prefix = 'msal.' + CLIENT_ID;
+    const scope  = 'https://jddredging.sharepoint.com/allsites.read';
+    const now    = Math.floor(Date.now() / 1000);
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.toLowerCase().startsWith(prefix.toLowerCase())) continue;
+      if (!key.toLowerCase().includes('accesstoken')) continue;
+
+      try {
+        const entry = JSON.parse(localStorage.getItem(key));
+        if (!entry) continue;
+        // Check scope match
+        const entryScope = (entry.target || entry.scopes || '').toLowerCase();
+        if (!entryScope.includes('allsites.read')) continue;
+        // Check not expired (with 60s buffer)
+        const exp = parseInt(entry.expiresOn || entry.cachedAt || 0);
+        if (exp > 0 && exp < now + 60) continue;
+        if (entry.secret || entry.accessToken) {
+          return entry.secret || entry.accessToken;
+        }
+      } catch(e) { continue; }
+    }
+  } catch(e) {}
+  return null;
+}
+
+// Reinitialize MSAL instance from scratch — forces re-read of localStorage
 async function reinitMsal() {
   try {
     msalInstance = new window.msal.PublicClientApplication(msalConfig);
@@ -816,13 +849,17 @@ async function reinitMsal() {
 }
 
 async function getToken() {
-  // Tier 1: cached accounts — re-read from localStorage after reinit
+  // Tier 0: try reading directly from localStorage cache (works across window boundaries)
+  const cached = getTokenFromStorage();
+  if (cached) return cached;
+
+  // Tier 1: try MSAL in-memory accounts
   const accounts = msalInstance.getAllAccounts();
   if (accounts.length > 0) {
     try {
       const r = await msalInstance.acquireTokenSilent({ scopes: loginRequest.scopes, account: accounts[0] });
       return r.accessToken;
-    } catch(e) { /* fall through to ssoSilent */ }
+    } catch(e) { /* fall through */ }
   }
 
   // Tier 2: ssoSilent — reuse active M365 session cookie (works in iframe, no UI)
@@ -1028,6 +1065,51 @@ function renderJobDetails(job, projectTitle) {
       <div class="jd-label">${f.label}</div>
       <div class="jd-value${f.cls ? ' ' + f.cls : ''}">${f.value}</div>
     </div>`).join('');
+}
+
+// ── DEBUG ────────────────────────────────────────────────
+function debugDump() {
+  const bar = document.getElementById('debugBar');
+  bar.style.display = '';
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.includes(CLIENT_ID)) keys.push(k);
+  }
+  if (keys.length === 0) {
+    bar.textContent = 'No MSAL keys found in localStorage for this clientId.
+
+All localStorage keys:
+' +
+      Array.from({length: localStorage.length}, (_, i) => localStorage.key(i)).join('
+');
+    return;
+  }
+  let out = 'MSAL keys found (' + keys.length + '):
+';
+  keys.forEach(k => {
+    try {
+      const v = JSON.parse(localStorage.getItem(k));
+      out += '
+--- ' + k.split('.').pop() + ' ---
+';
+      out += 'type: ' + (v.credentialType || v.authorityType || '?') + '
+';
+      if (v.target) out += 'scope: ' + v.target + '
+';
+      if (v.expiresOn) out += 'expires: ' + new Date(v.expiresOn * 1000).toLocaleTimeString() + '
+';
+      if (v.secret) out += 'token: [present, ' + v.secret.length + ' chars]
+';
+      if (v.accessToken) out += 'token: [present]
+';
+    } catch(e) { out += k + ': ' + e.message + '
+'; }
+  });
+  const directToken = getTokenFromStorage();
+  out += '
+getTokenFromStorage(): ' + (directToken ? '[FOUND - ' + directToken.length + ' chars]' : 'NULL');
+  bar.textContent = out;
 }
 
 // ── INIT ──────────────────────────────────────────────────
