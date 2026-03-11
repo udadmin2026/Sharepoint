@@ -785,13 +785,14 @@ async function signIn() {
 
   showSignInPending();
 
-  // Poll every second until the auth window closes (it closes itself after login)
+  // Poll until auth window closes, then reinitialize MSAL to pick up new localStorage cache
   if (authPollTimer) clearInterval(authPollTimer);
   authPollTimer = setInterval(async () => {
     if (w.closed) {
       clearInterval(authPollTimer);
       authPollTimer = null;
-      // Auth window finished — attempt silent token pick-up
+      // Reinitialize MSAL so it re-reads localStorage written by the auth window
+      await reinitMsal();
       const token = await getToken();
       if (token) {
         loadData();
@@ -802,17 +803,29 @@ async function signIn() {
   }, 1000);
 }
 
+// Reinitialize MSAL instance — forces re-read of localStorage cache
+// Required after auth window writes tokens; in-memory instance doesn't see them otherwise
+async function reinitMsal() {
+  try {
+    msalInstance = new window.msal.PublicClientApplication(msalConfig);
+    await msalInstance.initialize();
+    await msalInstance.handleRedirectPromise().catch(() => {});
+  } catch(e) {
+    console.warn('[Y171] MSAL reinit error:', e);
+  }
+}
+
 async function getToken() {
-  // Tier 1: cached token
+  // Tier 1: cached accounts — re-read from localStorage after reinit
   const accounts = msalInstance.getAllAccounts();
   if (accounts.length > 0) {
     try {
       const r = await msalInstance.acquireTokenSilent({ scopes: loginRequest.scopes, account: accounts[0] });
       return r.accessToken;
-    } catch(e) { /* fall through */ }
+    } catch(e) { /* fall through to ssoSilent */ }
   }
 
-  // Tier 2: ssoSilent — reuse active M365 session (no UI, works in iframe)
+  // Tier 2: ssoSilent — reuse active M365 session cookie (works in iframe, no UI)
   try {
     const r = await msalInstance.ssoSilent({ scopes: loginRequest.scopes });
     return r.accessToken;
