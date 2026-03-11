@@ -763,41 +763,70 @@ function showError(msg) {
 }
 
 // ── AUTH ──────────────────────────────────────────────────
-// Sign-in uses redirect (works in mobile/iframe, no popup needed)
+// IFRAME CONSTRAINT: MSAL blocks both loginPopup and loginRedirect inside iframes.
+// Strategy:
+//   1. acquireTokenSilent  — cached token (fastest)
+//   2. ssoSilent           — reuse existing M365 session (works in iframe, no UI)
+//   3. If both fail        — open a SEPARATE TOP-LEVEL window for login, then poll
+//      for the token. The top window can do redirect auth freely.
+
+const AUTH_WINDOW_URL = 'https://udadmin2026.github.io/Sharepoint/auth/';
+let   authPollTimer   = null;
+
 async function signIn() {
-  try {
-    await msalInstance.loginRedirect({ ...loginRequest, prompt: 'select_account' });
-    // page will redirect away — on return, init() handles the response
-  } catch(e) {
-    showError('Sign in failed: ' + e.message);
+  // Open a small standalone auth page in a new top-level window.
+  // That page runs loginRedirect freely (not in an iframe), then closes itself.
+  const w = window.open(AUTH_WINDOW_URL, 'udAuthWindow', 'width=520,height=620,left=200,top=100');
+  if (!w) {
+    // Pop-up blocked — last resort: navigate the top frame
+    window.top.location.href = AUTH_WINDOW_URL + '?returnTo=' + encodeURIComponent(window.location.href);
+    return;
   }
+
+  showSignInPending();
+
+  // Poll every second until the auth window closes (it closes itself after login)
+  if (authPollTimer) clearInterval(authPollTimer);
+  authPollTimer = setInterval(async () => {
+    if (w.closed) {
+      clearInterval(authPollTimer);
+      authPollTimer = null;
+      // Auth window finished — attempt silent token pick-up
+      const token = await getToken();
+      if (token) {
+        loadData();
+      } else {
+        showSignIn();
+      }
+    }
+  }, 1000);
 }
 
-// Three-tier token acquisition:
-// 1. acquireTokenSilent  (cached token, no round-trip)
-// 2. ssoSilent           (use existing MS session cookie — key for SharePoint mobile)
-// 3. Return null         (fall through to sign-in button)
 async function getToken() {
-  // Tier 1: check cached accounts and try silent refresh
+  // Tier 1: cached token
   const accounts = msalInstance.getAllAccounts();
   if (accounts.length > 0) {
     try {
-      const r = await msalInstance.acquireTokenSilent({ ...loginRequest, prompt: undefined, account: accounts[0] });
+      const r = await msalInstance.acquireTokenSilent({ scopes: loginRequest.scopes, account: accounts[0] });
       return r.accessToken;
-    } catch(e) {
-      // silent refresh failed — fall through to SSO
-    }
+    } catch(e) { /* fall through */ }
   }
 
-  // Tier 2: ssoSilent — leverages the user's existing Microsoft session
-  // This is the key path for SharePoint embedded on mobile (user already logged in to M365)
+  // Tier 2: ssoSilent — reuse active M365 session (no UI, works in iframe)
   try {
-    const r = await msalInstance.ssoSilent({ ...loginRequest, prompt: undefined });
+    const r = await msalInstance.ssoSilent({ scopes: loginRequest.scopes });
     return r.accessToken;
   } catch(e) {
-    // No active session found — user must sign in interactively
     return null;
   }
+}
+
+function showSignInPending() {
+  const html = '<div class="signin-box"><p>Sign in window opened — complete sign in then this page will reload automatically.</p><div class="spinner" style="margin:12px auto 0"></div></div>';
+  document.getElementById('activeBody').innerHTML  = html;
+  document.getElementById('mobilBody').innerHTML   = '<div class="card-state" style="color:var(--muted);font-style:italic">Waiting for sign in…</div>';
+  document.getElementById('prodBody').innerHTML    = '<div class="production-state">Waiting for sign in…</div>';
+  document.getElementById('lastUpdated').textContent = 'Signing in…';
 }
 
 // ── LOAD ALL DATA ─────────────────────────────────────────
