@@ -462,38 +462,42 @@ function renderCharts(entries, projectMultipliers) {
     bdr: data.map((_, i) => i === data.length - 1 ? GreenB : NavyB),
   });
 
-  const baseOpts = {
-    responsive: true,
-    maintainAspectRatio: true,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: 'rgba(28,29,46,0.97)',
-        borderColor: 'rgba(245,246,250,0.15)',
-        borderWidth: 1,
-        titleColor: 'rgba(245,246,250,0.55)',
-        bodyColor: '#F5F6FA',
-        padding: 10,
-        callbacks: { label: ctx => ` ${ctx.parsed.y.toLocaleString('en-US')} tons` }
-      }
-    },
-    scales: {
-      x: {
-        grid: { color: 'rgba(245,246,250,0.05)' },
-        ticks: { color: 'rgba(245,246,250,0.45)', font: { family: 'Barlow', size: 10 }, maxRotation: 45 },
-        border: { color: 'rgba(245,246,250,0.08)' }
+  function makeChartOpts() {
+    return {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(28,29,46,0.97)',
+          borderColor: 'rgba(245,246,250,0.15)',
+          borderWidth: 1,
+          titleColor: 'rgba(245,246,250,0.55)',
+          bodyColor: '#F5F6FA',
+          padding: 10,
+          callbacks: {
+            label: function(ctx) { return ' ' + ctx.parsed.y.toLocaleString('en-US') + ' tons'; }
+          }
+        }
       },
-      y: {
-        grid: { color: 'rgba(245,246,250,0.05)' },
-        ticks: {
-          color: 'rgba(245,246,250,0.45)',
-          font: { family: 'Barlow Condensed', size: 11 },
-          callback: v => v >= 1000 ? (v/1000).toFixed(0)+'k' : v
+      scales: {
+        x: {
+          grid: { color: 'rgba(245,246,250,0.05)' },
+          ticks: { color: 'rgba(245,246,250,0.45)', font: { family: 'Barlow', size: 10 }, maxRotation: 45 },
+          border: { color: 'rgba(245,246,250,0.08)' }
         },
-        border: { color: 'rgba(245,246,250,0.08)' }
+        y: {
+          grid: { color: 'rgba(245,246,250,0.05)' },
+          ticks: {
+            color: 'rgba(245,246,250,0.45)',
+            font: { family: 'Barlow Condensed', size: 11 },
+            callback: function(v) { return v >= 1000 ? (v/1000).toFixed(0)+'k' : v; }
+          },
+          border: { color: 'rgba(245,246,250,0.08)' }
+        }
       }
-    }
-  };
+    };
+  }
 
   if (weeklyChartInst) { weeklyChartInst.destroy(); weeklyChartInst = null; }
   const wc = mkColors(weekly.data);
@@ -503,7 +507,7 @@ function renderCharts(entries, projectMultipliers) {
       labels: weekly.labels,
       datasets: [{ data: weekly.data, backgroundColor: wc.bg, borderColor: wc.bdr, borderWidth: 1, borderRadius: 4, borderSkipped: false }]
     },
-    options: structuredClone(baseOpts)
+    options: makeChartOpts()
   });
 
   if (monthlyChartInst) { monthlyChartInst.destroy(); monthlyChartInst = null; }
@@ -514,7 +518,7 @@ function renderCharts(entries, projectMultipliers) {
       labels: monthly.labels,
       datasets: [{ data: monthly.data, backgroundColor: mc.bg, borderColor: mc.bdr, borderWidth: 1, borderRadius: 4, borderSkipped: false }]
     },
-    options: structuredClone(baseOpts)
+    options: makeChartOpts()
   });
 }
 
