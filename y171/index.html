@@ -191,12 +191,15 @@ const MACHINE    = 'Y171';
 
 // Project List columns
 const COLS = {
-  machine:  'PossibleMachine',
-  status:   'Status',
-  customer: 'Customer_x002f_Company',
-  location: 'ProjectLocation_x0028_PitName_x0',
-  product:  'Product_x002f_Work',
-  tonnage:  'Requested_x0020_Dredge_x0020_amo',
+  machine:      'PossibleMachine',
+  status:       'Status',
+  customer:     'Customer_x002f_Company',
+  location:     'ProjectLocation_x0028_PitName_x0',
+  product:      'Product_x002f_Work',
+  tonnage:      'Requested_x0020_Dredge_x0020_amo',
+  bucketSize:   'YarderBucketSize',   // yards per bucket (from Project List)
+  tonsPerYd:    'Tons_x002f_Yd',      // tons per yard (from Project List)
+  tonsBucket:   'Tons_x002f_Bucket',  // pre-calc tons/bucket (from Project List)
 };
 
 // Production Entry columns
@@ -383,7 +386,7 @@ function renderStats(stats, jobName, contractedTons) {
 // ── FETCH: Project List ────────────────────────────────────
 async function fetchByStatus(token, status) {
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(LIST_NAME)}')/items`
-            + `?$select=Id,${COLS.status},${COLS.machine},${COLS.location},${COLS.product},${COLS.tonnage},${COLS.customer}/Title`
+            + `?$select=Id,Title,${COLS.status},${COLS.machine},${COLS.location},${COLS.product},${COLS.tonnage},${COLS.bucketSize},${COLS.tonsPerYd},${COLS.tonsBucket},${COLS.customer}/Title`
             + `&$expand=${COLS.customer}`
             + `&$top=500`;
 
@@ -431,20 +434,33 @@ async function fetchProduction(token, projectTitle) {
 }
 
 // ── CALC: Tonnage per entry ────────────────────────────────
-function calcTons(entry) {
-  const buckets     = parseFloat(entry[PROD.buckets])    || 0;
+// projectMultipliers: { bucketSize, tonsPerYd, tonsBucket } from Project List item
+function calcTons(entry, projectMultipliers) {
+  const buckets = parseFloat(entry[PROD.buckets]) || 0;
+  if (buckets === 0) return 0;
+
+  const { bucketSize, tonsPerYd, tonsBucket } = projectMultipliers;
+
+  // Primary formula: Yarder Buckets × Yarder Bucket Size × Tons/Yd
+  if (bucketSize > 0 && tonsPerYd > 0) {
+    return buckets * bucketSize * tonsPerYd;
+  }
+  // Secondary: Yarder Buckets × Tons/Bucket (pre-calc on project)
+  if (tonsBucket > 0) {
+    return buckets * tonsBucket;
+  }
+  // Fallback: entry-level fields if filled
   const yardsPerBkt = parseFloat(entry[PROD.yardsPerBkt]) || 0;
   const tonsPerYard = parseFloat(entry[PROD.tonsPerYard]) || 0;
-
-  if (buckets > 0 && yardsPerBkt > 0 && tonsPerYard > 0) {
+  if (yardsPerBkt > 0 && tonsPerYard > 0) {
     return buckets * yardsPerBkt * tonsPerYard;
   }
-  // Fallback to pre-calculated field if formula fields missing
+  // Last resort: AcutalTons field on entry
   return parseFloat(entry[PROD.actualTons]) || 0;
 }
 
 // ── AGGREGATE tonnage into time buckets ───────────────────
-function aggregateTons(entries) {
+function aggregateTons(entries, projectMultipliers) {
   const ranges = getDateRanges();
   const stats = { yesterday: 0, thisWeek: 0, lastWeek: 0, thisMonth: 0, lastMonth: 0, total: 0 };
 
@@ -452,7 +468,7 @@ function aggregateTons(entries) {
     const rawDate = entry[PROD.date];
     if (!rawDate) return;
     const d = new Date(rawDate);
-    const tons = calcTons(entry);
+    const tons = calcTons(entry, projectMultipliers);
     stats.total += tons;
 
     if (d >= ranges.yest       && d <= ranges.yestEnd)       stats.yesterday += tons;
@@ -529,10 +545,6 @@ async function loadData() {
     // Step 2: Load production data for first active project
     if (activeItems.length > 0) {
       const activeItem = activeItems[0];
-      const projectTitle = activeItem[COLS.customer]?.Title
-                        || activeItem[COLS.customer]
-                        || activeItem[COLS.location]
-                        || '';
       const contractedTons = parseFloat(activeItem[COLS.tonnage]) || 0;
 
       try {
@@ -544,14 +556,20 @@ async function loadData() {
         const jobName = findJobName(allProd, activeItem);
         const filtered = allProd.filter(entry => matchesProject(entry, activeItem));
 
+        // Extract project-level ton multipliers from the active Project List item
+        const projectMultipliers = {
+          bucketSize: parseFloat(activeItem[COLS.bucketSize]) || 0,
+          tonsPerYd:  parseFloat(activeItem[COLS.tonsPerYd])  || 0,
+          tonsBucket: parseFloat(activeItem[COLS.tonsBucket]) || 0,
+        };
+
         if (filtered.length === 0 && allProd.length > 0) {
-          // Show all production if we can't match — useful for debugging
-          document.getElementById('prodJobLabel').textContent = '— (showing all entries, refine job match)';
-          const stats = aggregateTons(allProd);
+          document.getElementById('prodJobLabel').textContent = '— (no project match found)';
+          const stats = aggregateTons(allProd, projectMultipliers);
           renderStats(stats, 'All Entries', contractedTons);
         } else {
-          const stats = aggregateTons(filtered);
-          renderStats(stats, jobName || projectTitle, contractedTons);
+          const stats = aggregateTons(filtered, projectMultipliers);
+          renderStats(stats, jobName || activeItem.Title || '', contractedTons);
         }
       } catch(prodErr) {
         document.getElementById('prodBody').innerHTML = `<div class="production-error">⚠ Production data error: ${prodErr.message}</div>`;
@@ -583,25 +601,26 @@ async function fetchAllProduction(token) {
   return (await r.json())?.d?.results ?? [];
 }
 
-// Try to match a production entry to the active project
+// Match production entry to active project using Project List Title field
+// Production entries link back to Project List via the Project lookup —
+// that lookup Title (e.g. "RGI Hempstead 2025") IS the Project List Title column.
 function matchesProject(entry, activeItem) {
-  const projLookup = entry[PROD.project]?.Title || '';
-  const jobChoice  = entry[PROD.jobName] || '';
-  const customer   = activeItem[COLS.customer]?.Title || activeItem[COLS.customer] || '';
-  const location   = activeItem[COLS.location] || '';
+  const prodProjTitle  = (entry[PROD.project]?.Title || '').trim().toLowerCase();
+  const activeProjTitle = (activeItem.Title || '').trim().toLowerCase();
 
-  // Match if job name or project lookup contains customer name or location
-  const targets = [customer, location].filter(Boolean).map(s => s.toLowerCase());
-  const sources = [projLookup, jobChoice].map(s => s.toLowerCase());
+  // Direct match on Project List Title (most reliable)
+  if (activeProjTitle && prodProjTitle === activeProjTitle) return true;
 
-  return sources.some(src => targets.some(tgt => tgt && src && (src.includes(tgt) || tgt.includes(src))));
+  // Fallback: partial word match (handles minor naming differences)
+  const words = activeProjTitle.split(/\s+/).filter(w => w.length > 3);
+  return words.length > 0 && words.every(w => prodProjTitle.includes(w));
 }
 
 // Get the job name label from matching entries
 function findJobName(entries, activeItem) {
   const matched = entries.find(e => matchesProject(e, activeItem));
   if (!matched) return null;
-  return matched[PROD.project]?.Title || matched[PROD.jobName] || null;
+  return matched[PROD.project]?.Title || activeItem.Title || null;
 }
 
 // ── INIT ──────────────────────────────────────────────────
