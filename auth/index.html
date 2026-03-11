@@ -7,27 +7,22 @@
   <script src="https://alcdn.msauth.net/browser/2.38.1/js/msal-browser.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: #1C1D2E;
-      font-family: -apple-system, sans-serif;
-      color: #F5F6FA;
-      display: flex; align-items: center; justify-content: center;
-      min-height: 100vh; padding: 24px;
-    }
-    .card {
-      background: rgba(35,45,99,0.5);
-      border: 1px solid rgba(245,246,250,0.12);
-      border-radius: 14px;
-      padding: 40px 36px;
-      max-width: 380px; width: 100%;
-      text-align: center;
-    }
-    .logo { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: rgba(245,246,250,0.4); margin-bottom: 24px; }
-    .logo strong { display: block; font-size: 22px; font-weight: 800; color: #F5F6FA; letter-spacing: 1px; margin-bottom: 4px; }
-    .status { font-size: 14px; color: rgba(245,246,250,0.65); line-height: 1.6; margin-bottom: 20px; min-height: 48px; }
-    .spinner { width: 28px; height: 28px; border: 3px solid rgba(245,246,250,0.15); border-top-color: #DA0039; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
+    body { background: #1C1D2E; font-family: -apple-system, sans-serif; color: #F5F6FA;
+      display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
+    .card { background: rgba(35,45,99,0.5); border: 1px solid rgba(245,246,250,0.12);
+      border-radius: 14px; padding: 40px 36px; max-width: 380px; width: 100%; text-align: center; }
+    .logo { font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+      color: rgba(245,246,250,0.4); margin-bottom: 24px; }
+    .logo strong { display: block; font-size: 22px; font-weight: 800; color: #F5F6FA;
+      letter-spacing: 1px; margin-bottom: 4px; }
+    .status { font-size: 14px; color: rgba(245,246,250,0.65); line-height: 1.6;
+      margin-bottom: 20px; min-height: 48px; }
+    .spinner { width: 28px; height: 28px; border: 3px solid rgba(245,246,250,0.15);
+      border-top-color: #DA0039; border-radius: 50%; animation: spin 0.8s linear infinite;
+      margin: 0 auto 20px; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .btn { background: #DA0039; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; padding: 12px 28px; cursor: pointer; width: 100%; display: none; }
+    .btn { background: #DA0039; color: #fff; border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 700; padding: 12px 28px; cursor: pointer; width: 100%; display: none; }
     .btn:hover { background: #b8002f; }
     .check { color: #00C875; font-size: 36px; margin-bottom: 12px; }
   </style>
@@ -35,84 +30,86 @@
 <body>
 <div class="card">
   <div class="logo"><strong>United Dredging</strong>SharePoint Widgets</div>
-  <div id="ui">
-    <div id="spinner" class="spinner"></div>
-    <div id="status" class="status">Checking your Microsoft session…</div>
-    <button id="signInBtn" class="btn">Sign in with Microsoft</button>
-  </div>
+  <div id="spinner" class="spinner"></div>
+  <div id="status" class="status">Checking your Microsoft session…</div>
+  <button id="signInBtn" class="btn">Sign in with Microsoft</button>
 </div>
-
 <script>
-const MSAL    = window.msal;
 const CLIENT  = '69affe29-c1bc-4e7a-89f6-583211c1d3f2';
 const TENANT  = 'f0c675e2-30ad-41ca-9424-b4eac122977b';
 const REDIRECT = 'https://udadmin2026.github.io/Sharepoint/auth/';
 const SCOPES   = ['https://jddredging.sharepoint.com/AllSites.Read'];
+const WIDGET_ORIGIN = 'https://udadmin2026.github.io';
 
 const cfg = {
   auth: { clientId: CLIENT, authority: 'https://login.microsoftonline.com/' + TENANT, redirectUri: REDIRECT },
   cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
 };
 
+function sendTokenToOpener(token) {
+  // Send token back to widget iframe via the opener window
+  if (window.opener && !window.opener.closed) {
+    try {
+      window.opener.postMessage({ type: 'authToken', token: token }, WIDGET_ORIGIN);
+      console.log('[Auth] Token sent to opener via postMessage');
+    } catch(e) { console.warn('[Auth] postMessage failed:', e); }
+  }
+}
+
+function showSuccess(token) {
+  document.getElementById('spinner').style.display = 'none';
+  document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in successfully.<br>Returning to SharePoint…';
+  sendTokenToOpener(token);
+  setTimeout(() => {
+    try { window.close(); } catch(e) {}
+    setTimeout(() => {
+      document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in! You may close this window.';
+    }, 2000);
+  }, 1000);
+}
+
 async function run() {
-  const app = new MSAL.PublicClientApplication(cfg);
+  const app = new window.msal.PublicClientApplication(cfg);
   await app.initialize();
 
-  // Step 1: handle redirect response (this page IS the redirect target)
-  let redirectResult = null;
+  // Step 1: Handle redirect response (we ARE the redirect target)
   try {
-    redirectResult = await app.handleRedirectPromise();
-  } catch(e) {
-    console.warn('handleRedirectPromise error:', e);
-  }
+    const result = await app.handleRedirectPromise();
+    if (result && result.accessToken) {
+      showSuccess(result.accessToken);
+      return;
+    }
+  } catch(e) { console.warn('[Auth] handleRedirectPromise:', e.message); }
 
-  if (redirectResult && redirectResult.accessToken) {
-    // Token landed in localStorage — done, close window
-    showSuccess();
-    return;
-  }
-
-  // Step 2: try silent with cached account
+  // Step 2: Try silent with cached account
   const accounts = app.getAllAccounts();
   if (accounts.length > 0) {
     try {
-      await app.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
-      showSuccess();
+      const r = await app.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
+      showSuccess(r.accessToken);
       return;
-    } catch(e) {}
+    } catch(e) { console.log('[Auth] silent failed:', e.message); }
   }
 
-  // Step 3: try ssoSilent
+  // Step 3: ssoSilent
   try {
-    await app.ssoSilent({ scopes: SCOPES });
-    showSuccess();
+    const r = await app.ssoSilent({ scopes: SCOPES });
+    showSuccess(r.accessToken);
     return;
-  } catch(e) {}
+  } catch(e) { console.log('[Auth] ssoSilent failed:', e.message); }
 
-  // Step 4: need interactive — show button, trigger redirect on click
+  // Step 4: Need interactive login
   document.getElementById('spinner').style.display = 'none';
   document.getElementById('status').textContent = 'Sign in with your Microsoft account to authorize the Project Status widgets.';
   const btn = document.getElementById('signInBtn');
   btn.style.display = 'block';
   btn.addEventListener('click', () => {
     btn.disabled = true;
-    btn.textContent = 'Redirecting…';
+    btn.textContent = 'Redirecting to Microsoft…';
+    document.getElementById('status').textContent = 'You will be redirected to sign in, then returned here automatically.';
+    document.getElementById('spinner').style.display = 'block';
     app.loginRedirect({ scopes: SCOPES });
   });
-}
-
-function showSuccess() {
-  document.getElementById('ui').innerHTML =
-    '<div class="check">✓</div>' +
-    '<div class="status">Signed in successfully.<br>This window will close…</div>';
-  // Give localStorage a moment to flush, then close
-  setTimeout(() => {
-    try { window.close(); } catch(e) {}
-    // If window.close() is blocked, show a message
-    setTimeout(() => {
-      document.querySelector('.status').textContent = 'You may close this window and return to SharePoint.';
-    }, 2000);
-  }, 1200);
 }
 
 run();
