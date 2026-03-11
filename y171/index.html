@@ -1,118 +1,1099 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>United Dredging — Sign In</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Y171 — Project Status</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://alcdn.msauth.net/browser/2.38.1/js/msal-browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #1C1D2E; font-family: -apple-system, sans-serif; color: #F5F6FA;
-      display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
-    .card { background: rgba(35,45,99,0.5); border: 1px solid rgba(245,246,250,0.12);
-      border-radius: 14px; padding: 40px 36px; max-width: 380px; width: 100%; text-align: center; }
-    .logo { font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
-      color: rgba(245,246,250,0.4); margin-bottom: 24px; }
-    .logo strong { display: block; font-size: 22px; font-weight: 800; color: #F5F6FA;
-      letter-spacing: 1px; margin-bottom: 4px; }
-    .status { font-size: 14px; color: rgba(245,246,250,0.65); line-height: 1.6;
-      margin-bottom: 20px; min-height: 48px; }
-    .spinner { width: 28px; height: 28px; border: 3px solid rgba(245,246,250,0.15);
-      border-top-color: #DA0039; border-radius: 50%; animation: spin 0.8s linear infinite;
-      margin: 0 auto 20px; }
+    :root {
+      --navy:    #1C1D2E;
+      --blue:    #232D63;
+      --red:     #DA0039;
+      --green:   #00C875;
+      --amber:   #FFAB00;
+      --white:   #F5F6FA;
+      --muted:   rgba(245,246,250,0.55);
+      --card-bg: rgba(35,45,99,0.45);
+      --border:  rgba(245,246,250,0.12);
+    }
+    html, body { background: var(--navy); font-family: 'Barlow', sans-serif; color: var(--white); }
+    body {
+      background:
+        radial-gradient(ellipse 80% 60% at 10% 0%, rgba(35,45,99,0.6) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 90% 100%, rgba(218,0,57,0.08) 0%, transparent 55%),
+        var(--navy);
+      padding: 16px;
+    }
+
+    /* ── HEADER ── */
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
+    .header-left { display: flex; align-items: center; gap: 14px; }
+    .unit-badge { background: var(--red); font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 22px; letter-spacing: 1px; padding: 6px 14px 5px; border-radius: 6px; line-height: 1; text-transform: uppercase; }
+    .header-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 26px; letter-spacing: 0.5px; line-height: 1.1; }
+    .header-title span { display: block; font-size: 12px; font-weight: 400; font-family: 'Barlow', sans-serif; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+    .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .refresh-info { font-size: 11px; color: var(--muted); text-align: right; }
+    .refresh-info strong { display: block; font-size: 12px; color: rgba(245,246,250,0.75); }
+    .btn { background: var(--blue); border: 1px solid var(--border); color: var(--white); font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; padding: 7px 16px; border-radius: 6px; cursor: pointer; transition: background 0.18s, transform 0.1s; white-space: nowrap; }
+    .btn:hover { background: #2d3a80; }
+    .btn:active { transform: scale(0.97); }
+    .btn.loading { opacity: 0.6; pointer-events: none; }
+    .btn-signin { background: var(--red); border-color: rgba(218,0,57,0.5); font-size: 14px; padding: 10px 24px; }
+    .btn-signin:hover { background: #b8002f; }
+
+    /* ── OUTER 2-COL LAYOUT ── */
+    .page-layout { display: grid; grid-template-columns: 1fr 300px; gap: 18px; align-items: start; }
+    .main-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+    .sidebar-col { display: flex; flex-direction: column; gap: 0; position: sticky; top: 16px; }
+
+    /* ── PROJECT CARDS ── */
+    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+    .status-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; backdrop-filter: blur(12px); overflow: hidden; display: flex; flex-direction: column; }
+    .card-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 12px; border-bottom: 1px solid var(--border); }
+    .status-pill { display: flex; align-items: center; gap: 8px; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 1.2px; text-transform: uppercase; }
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .card--active .status-dot  { background: var(--green); animation: pg 2s infinite; }
+    .card--mobil  .status-dot  { background: var(--amber); animation: pa 2s infinite; }
+    .card--active .card-header { border-left: 3px solid var(--green); }
+    .card--mobil  .card-header { border-left: 3px solid var(--amber); }
+    .card--active .status-pill { color: var(--green); }
+    .card--mobil  .status-pill { color: var(--amber); }
+    @keyframes pg { 0%,100%{box-shadow:0 0 6px var(--green);} 50%{box-shadow:0 0 14px var(--green),0 0 24px rgba(0,200,117,.3);} }
+    @keyframes pa { 0%,100%{box-shadow:0 0 6px var(--amber);} 50%{box-shadow:0 0 14px var(--amber),0 0 24px rgba(255,171,0,.3);} }
+    .count-badge { background: rgba(245,246,250,0.1); border: 1px solid var(--border); border-radius: 20px; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 600; padding: 2px 10px; color: var(--muted); }
+    .card-body { flex: 1; display: flex; flex-direction: column; }
+    .project-row { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; padding: 14px 18px; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+    .project-row:last-child { border-bottom: none; }
+    .project-row:hover { background: rgba(245,246,250,0.04); }
+    .field-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 2px; }
+    .field-value { font-size: 13px; font-weight: 600; color: var(--white); line-height: 1.3; }
+    .field-value.tonnage { font-family: 'Barlow Condensed', sans-serif; font-size: 17px; font-weight: 700; }
+    .card--active .field-value.tonnage { color: var(--green); }
+    .card--mobil  .field-value.tonnage { color: var(--amber); }
+    .cell-customer { grid-column: 1; grid-row: 1; }
+    .cell-location { grid-column: 2; grid-row: 1; }
+    .cell-product  { grid-column: 1; grid-row: 2; padding-top: 10px; }
+    .cell-tonnage  { grid-column: 2; grid-row: 2; padding-top: 10px; }
+    .card-state { padding: 30px 18px; text-align: center; color: var(--muted); font-size: 13px; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+    .card-error-box { margin: 12px 14px; background: rgba(218,0,57,0.12); border: 1px solid rgba(218,0,57,0.35); border-radius: 8px; padding: 14px; font-size: 12px; color: #ff8fa3; line-height: 1.7; }
+    .card-error-box strong { display: block; font-size: 13px; margin-bottom: 6px; color: #ff6b8a; }
+    .signin-box { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 40px 20px; text-align: center; min-height: 200px; }
+    .signin-box p { color: var(--muted); font-size: 13px; max-width: 320px; line-height: 1.6; }
+
+    /* ── PRODUCTION STATS SECTION ── */
+    .production-section { margin-top: 18px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; backdrop-filter: blur(12px); overflow: hidden; }
+    .production-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; border-bottom: 1px solid var(--border); border-left: 3px solid var(--red); }
+    .production-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 14px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--white); display: flex; align-items: center; gap: 8px; }
+    .production-title .prod-icon { font-size: 15px; }
+    .production-job { font-size: 11px; color: var(--muted); font-family: 'Barlow', sans-serif; font-weight: 400; letter-spacing: 0; text-transform: none; }
+    .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; }
+    .stat-tile { padding: 16px 14px; border-right: 1px solid var(--border); text-align: center; transition: background 0.15s; }
+    .stat-tile:last-child { border-right: none; }
+    .stat-tile:hover { background: rgba(245,246,250,0.04); }
+    .stat-label { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 8px; }
+    .stat-value { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 700; color: var(--white); line-height: 1; }
+    .stat-value.highlight { color: var(--green); }
+    .stat-value.dimmed { color: var(--muted); font-size: 16px; }
+    .stat-unit { font-size: 10px; color: var(--muted); margin-top: 4px; letter-spacing: 0.5px; }
+    .progress-bar-wrap { padding: 12px 18px 16px; border-top: 1px solid var(--border); }
+    .progress-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    .progress-label strong { color: var(--white); }
+    .progress-track { height: 6px; background: rgba(245,246,250,0.1); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--green), #00e89a); transition: width 0.8s ease; }
+    .progress-fill.warn { background: linear-gradient(90deg, var(--amber), #ffd04d); }
+    .production-state { padding: 24px 18px; text-align: center; color: var(--muted); font-size: 13px; }
+    .production-error { margin: 12px 14px 14px; background: rgba(218,0,57,0.12); border: 1px solid rgba(218,0,57,0.35); border-radius: 8px; padding: 12px; font-size: 12px; color: #ff8fa3; }
+
+    /* ── FOOTER ── */
+    .footer { margin-top: 14px; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .spinner { width: 22px; height: 22px; border: 3px solid rgba(245,246,250,0.15); border-top-color: rgba(245,246,250,0.6); border-radius: 50%; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .btn { background: #DA0039; color: #fff; border: none; border-radius: 8px;
-      font-size: 14px; font-weight: 700; padding: 12px 28px; cursor: pointer; width: 100%; display: none; }
-    .btn:hover { background: #b8002f; }
-    .check { color: #00C875; font-size: 36px; margin-bottom: 12px; }
+
+    /* ── JOB DETAILS SIDEBAR ── */
+    .job-details-section { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; backdrop-filter: blur(12px); overflow: hidden; }
+    .job-details-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--border); border-left: 3px solid var(--amber); }
+    .job-details-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--white); display: flex; align-items: center; gap: 6px; }
+    .job-details-subtitle { font-size: 10px; font-weight: 400; font-family: 'Barlow', sans-serif; letter-spacing: 0; text-transform: none; color: var(--muted); display: block; margin-top: 2px; }
+    .job-details-body { display: flex; flex-direction: column; }
+    .jd-field { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .jd-field:last-child { border-bottom: none; }
+    .jd-label { font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 3px; }
+    .jd-value { font-size: 12px; font-weight: 500; color: var(--white); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .jd-value.date { font-family: 'Barlow Condensed', sans-serif; font-size: 17px; font-weight: 700; color: var(--amber); }
+    .jd-value.crew { font-weight: 600; color: var(--green); font-size: 13px; }
+    .jd-state { padding: 20px 16px; text-align: center; color: var(--muted); font-size: 12px; }
+
+    /* ── CHARTS ── */
+    .charts-section { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; backdrop-filter: blur(12px); overflow: hidden; }
+    .chart-header { padding: 12px 18px 10px; border-bottom: 1px solid var(--border); border-left: 3px solid var(--blue); display: flex; align-items: baseline; gap: 10px; }
+    .chart-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--white); }
+    .chart-subtitle { font-size: 11px; color: var(--muted); }
+    .chart-body { padding: 14px 16px 16px; position: relative; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 860px) {
+      .charts-section { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 860px) {
+      /* Stack sidebar below main on tablets/mobile */
+      .page-layout { grid-template-columns: 1fr; }
+      .sidebar-col { position: static; }
+    }
+    @media (max-width: 600px) {
+      body { padding: 12px; }
+      .header { margin-bottom: 16px; }
+      .header-title { font-size: 20px; }
+      .unit-badge { font-size: 18px; padding: 5px 10px; }
+      .cards-grid { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(3, 1fr); }
+      .stat-tile:nth-child(3) { border-right: none; }
+      .stat-tile:nth-child(4), .stat-tile:nth-child(5) { border-top: 1px solid var(--border); }
+      .stat-value { font-size: 18px; }
+      .project-row { grid-template-columns: 1fr; }
+      .cell-location, .cell-tonnage { grid-column: 1; padding-top: 10px; }
+      .cell-location { grid-row: 2; }
+      .cell-product  { grid-row: 3; }
+      .cell-tonnage  { grid-row: 4; }
+      .progress-label { flex-direction: column; gap: 2px; }
+    }
+    @media (max-width: 380px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .stat-tile:nth-child(2) { border-right: none; }
+      .stat-tile:nth-child(3), .stat-tile:nth-child(4), .stat-tile:nth-child(5) { border-top: 1px solid var(--border); }
+      .stat-tile:nth-child(3) { border-right: 1px solid var(--border); }
+      .stat-tile:nth-child(4) { border-right: none; }
+    }
   </style>
 </head>
 <body>
-<div class="card">
-  <div class="logo"><strong>United Dredging</strong>SharePoint Widgets</div>
-  <div id="spinner" class="spinner"></div>
-  <div id="status" class="status">Checking your Microsoft session…</div>
-  <button id="signInBtn" class="btn">Sign in with Microsoft</button>
-</div>
-<script>
-const CLIENT  = '69affe29-c1bc-4e7a-89f6-583211c1d3f2';
-const TENANT  = 'f0c675e2-30ad-41ca-9424-b4eac122977b';
-const REDIRECT = 'https://udadmin2026.github.io/Sharepoint/auth/';
-const SCOPES   = ['https://jddredging.sharepoint.com/AllSites.Read'];
-const WIDGET_ORIGIN = 'https://udadmin2026.github.io';
 
-const cfg = {
-  auth: { clientId: CLIENT, authority: 'https://login.microsoftonline.com/' + TENANT, redirectUri: REDIRECT },
-  cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
+<div class="header">
+  <div class="header-left">
+    <div class="unit-badge">Y171</div>
+    <div class="header-title">
+      Project Status
+      <span>United Dredging — Live from SharePoint</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="refresh-info">
+      <strong id="lastUpdated">Loading…</strong>
+      Auto-refresh every 2 min
+    </div>
+    <button class="btn" id="refreshBtn" onclick="loadData()">↻ Refresh</button>
+  </div>
+</div>
+
+<div class="page-layout">
+
+  <!-- LEFT: Main content column -->
+  <div class="main-col">
+
+    <!-- Project Cards: Active + Mobilization -->
+    <div class="cards-grid">
+      <div class="status-card card--active">
+        <div class="card-header">
+          <div class="status-pill"><div class="status-dot"></div>Active</div>
+          <div class="count-badge" id="activeCount">—</div>
+        </div>
+        <div class="card-body" id="activeBody">
+          <div class="card-state"><div class="spinner"></div><span>Connecting…</span></div>
+        </div>
+      </div>
+      <div class="status-card card--mobil">
+        <div class="card-header">
+          <div class="status-pill"><div class="status-dot"></div>Mobilization Scheduled</div>
+          <div class="count-badge" id="mobilCount">—</div>
+        </div>
+        <div class="card-body" id="mobilBody">
+          <div class="card-state"><div class="spinner"></div><span>Connecting…</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Production Stats -->
+    <div class="production-section">
+      <div class="production-header">
+        <div class="production-title">
+          <span class="prod-icon">⛏</span>
+          Production Tonnage
+          <span class="production-job" id="prodJobLabel"></span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);">Time &amp; Production Entry</div>
+      </div>
+      <div id="prodBody">
+        <div class="production-state"><div class="spinner" style="margin:0 auto;"></div></div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-section" id="chartsSection" style="display:none">
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">⛏ Weekly Totals</div>
+          <div class="chart-subtitle">Tons per week</div>
+        </div>
+        <div class="chart-body"><canvas id="weeklyChart" height="200"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">📅 Monthly Totals</div>
+          <div class="chart-subtitle">Tons per month</div>
+        </div>
+        <div class="chart-body"><canvas id="monthlyChart" height="200"></canvas></div>
+      </div>
+    </div>
+
+  </div><!-- /main-col -->
+
+  <!-- RIGHT: Job Details sidebar -->
+  <div class="sidebar-col">
+    <div class="job-details-section" id="jobDetailsSection" style="display:none">
+      <div class="job-details-header">
+        <div class="job-details-title">
+          📋 Job Details
+          <span class="job-details-subtitle" id="jobDetailsProject"></span>
+        </div>
+      </div>
+      <div class="job-details-body" id="jobDetailsBody">
+        <div class="jd-state"><div class="spinner" style="margin:0 auto;"></div></div>
+      </div>
+    </div>
+  </div><!-- /sidebar-col -->
+
+</div><!-- /page-layout -->
+
+<div id="debugBar" style="display:none;margin-bottom:8px;background:rgba(218,0,57,0.1);border:1px solid rgba(218,0,57,0.3);border-radius:8px;padding:10px 14px;font-size:11px;font-family:monospace;color:#ff8fa3;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;"></div>
+<div class="footer">
+  <div>Source: <strong>Project List</strong> · Machine = Y171 · UnitedDredging</div>
+  <div><button onclick="debugDump()" style="background:none;border:1px solid rgba(245,246,250,0.2);color:rgba(245,246,250,0.4);font-size:10px;padding:2px 8px;border-radius:4px;cursor:pointer;">debug</button></div>
+  <div id="statusLine"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════
+const CLIENT_ID  = '69affe29-c1bc-4e7a-89f6-583211c1d3f2';
+const TENANT_ID  = 'f0c675e2-30ad-41ca-9424-b4eac122977b';
+const SITE_URL   = 'https://jddredging.sharepoint.com/sites/UnitedDredging';
+const LIST_NAME  = 'Project List';
+const PROD_LIST  = 'Time and Production Entry';
+const JOB_LIST   = 'Job Checklist';
+const MACHINE    = 'Y171';
+
+// Project List columns
+const COLS = {
+  machine:      'PossibleMachine',
+  status:       'Status',
+  customer:     'Customer_x002f_Company',
+  location:     'ProjectLocation_x0028_PitName_x0',
+  product:      'Product_x002f_Work',
+  tonnage:      'Requested_x0020_Dredge_x0020_amo',
+  bucketSize:   'YarderBucketSize',   // yards per bucket (from Project List)
+  tonsPerYd:    'Tons_x002f_Yd',      // tons per yard (from Project List)
+  tonsBucket:   'Tons_x002f_Bucket',  // pre-calc tons/bucket (from Project List)
 };
 
-function sendTokenToOpener(token) {
-  // Send token back to widget iframe via the opener window
-  if (window.opener && !window.opener.closed) {
-    try {
-      window.opener.postMessage({ type: 'authToken', token: token }, WIDGET_ORIGIN);
-      console.log('[Auth] Token sent to opener via postMessage');
-    } catch(e) { console.warn('[Auth] postMessage failed:', e); }
+// Job Checklist columns
+const JOB = {
+  project:     'Pit_x002f_Project',               // Lookup → Project List
+  startDate:   'StartDate',
+  crew:        'Crew',                             // MultiChoice
+  rental:      'RentalComments',
+  fuel:        'FuelCompany',
+  pitContact:  'PitContactName_x002f_Number',
+  mobilize:    'MobilizationCompanyandContact',
+  portaPotty:  'PortaPottyCompany',
+  hotel:       'HotelInformation',
+  notes:       'Notes',
+};
+
+// Production Entry columns
+const PROD = {
+  date:         'Date',
+  project:      'Project',              // Lookup → Project List Title
+  jobName:      'Job_x0020_Name',       // Choice fallback
+  buckets:      'Yarder_x0020_Buckets',
+  yardsPerBkt:  'YardsPerBucket_x0028_Number_x002',
+  tonsPerYard:  'TonsPerYard_x0028_Number_x0029_',
+  actualTons:   'AcutalTons',           // pre-calculated fallback
+};
+
+const REFRESH_MS = 2 * 60 * 1000;
+let timer = null;
+let msalInstance = null;
+let accessToken  = null;
+let activeProjectTitle = null; // set after project cards load
+
+// ── MSAL SETUP ────────────────────────────────────────────
+const msalConfig = {
+  auth: {
+    clientId:    CLIENT_ID,
+    authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
+    redirectUri: 'https://udadmin2026.github.io/Sharepoint/auth/',
+  },
+  cache: {
+    cacheLocation: 'localStorage',
+    storeAuthStateInCookie: true,
   }
+};
+const loginRequest = { scopes: ['https://jddredging.sharepoint.com/AllSites.Read'] };
+
+
+
+// ── HELPERS ───────────────────────────────────────────────
+function getCustomer(item) {
+  const c = item[COLS.customer];
+  if (!c) return '—';
+  if (typeof c === 'string') return c;
+  if (c?.Title) return c.Title;
+  return '—';
 }
 
-function showSuccess(token) {
-  document.getElementById('spinner').style.display = 'none';
-  document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in successfully.<br>Returning to SharePoint…';
-  sendTokenToOpener(token);
-  setTimeout(() => {
-    try { window.close(); } catch(e) {}
-    setTimeout(() => {
-      document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in! You may close this window.';
-    }, 2000);
-  }, 1000);
+function getMultiChoice(item, col) {
+  const v = item[col];
+  if (!v) return '—';
+  if (typeof v === 'string') return v;
+  if (v?.results && Array.isArray(v.results)) return v.results.join(', ') || '—';
+  return String(v);
 }
 
-async function run() {
-  const app = new window.msal.PublicClientApplication(cfg);
-  await app.initialize();
+function val(v) { return v || '—'; }
 
-  // Step 1: Handle redirect response (we ARE the redirect target)
-  try {
-    const result = await app.handleRedirectPromise();
-    if (result && result.accessToken) {
-      showSuccess(result.accessToken);
-      return;
+function fmtTons(n) {
+  if (!n && n !== 0) return '—';
+  return Math.round(n).toLocaleString('en-US');
+}
+
+// Date range helpers — all in local time
+function today()     { const d = new Date(); d.setHours(0,0,0,0); return d; }
+function yesterday() { const d = today(); d.setDate(d.getDate()-1); return d; }
+
+function weekStart(offset = 0) {
+  const d = today();
+  const day = d.getDay(); // 0=Sun
+  d.setDate(d.getDate() - day + offset * 7); // Monday of target week... use Sun start
+  d.setDate(d.getDate() - day);
+  return d;
+}
+
+// ── CHART INSTANCES ──────────────────────────────────────
+let weeklyChartInst  = null;
+let monthlyChartInst = null;
+
+// ── BUILD WEEKLY CHART DATA (last 12 weeks) ───────────────
+function buildWeeklyData(entries, projectMultipliers) {
+  const today2 = new Date();
+  today2.setHours(0,0,0,0);
+  const dayOfWeek = today2.getDay();
+  const thisWeekSun = new Date(today2);
+  thisWeekSun.setDate(today2.getDate() - dayOfWeek);
+
+  const labels = [];
+  const keys   = [];
+  const weeks  = {};
+  for (let i = 11; i >= 0; i--) {
+    const weekStart = new Date(thisWeekSun);
+    weekStart.setDate(thisWeekSun.getDate() - i * 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setHours(23,59,59,999);
+    const mo  = weekStart.toLocaleDateString('en-US', { month: 'short' });
+    const day = weekStart.getDate();
+    const key = weekStart.toISOString().slice(0,10);
+    labels.push(`${mo} ${day}`);
+    keys.push({ key, start: new Date(weekStart), end: weekEnd });
+    weeks[key] = 0;
+  }
+  entries.forEach(entry => {
+    const raw = entry[PROD.date];
+    if (!raw) return;
+    const d = new Date(raw);
+    const tons = calcTons(entry, projectMultipliers);
+    for (const { key, start, end } of keys) {
+      if (d >= start && d <= end) { weeks[key] += tons; break; }
     }
-  } catch(e) { console.warn('[Auth] handleRedirectPromise:', e.message); }
+  });
+  return { labels, data: keys.map(k => Math.round(weeks[k.key])) };
+}
 
-  // Step 2: Try silent with cached account
-  const accounts = app.getAllAccounts();
-  if (accounts.length > 0) {
-    try {
-      const r = await app.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
-      showSuccess(r.accessToken);
-      return;
-    } catch(e) { console.log('[Auth] silent failed:', e.message); }
+// ── BUILD MONTHLY CHART DATA (last 12 months) ────────────
+function buildMonthlyData(entries, projectMultipliers) {
+  const now2   = new Date();
+  const labels = [];
+  const keys   = [];
+  const months = {};
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now2.getFullYear(), now2.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    labels.push(label);
+    keys.push(key);
+    months[key] = 0;
+  }
+  entries.forEach(entry => {
+    const raw = entry[PROD.date];
+    if (!raw) return;
+    const d = new Date(raw);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const tons = calcTons(entry, projectMultipliers);
+    if (key in months) months[key] += tons;
+  });
+  return { labels, data: keys.map(k => Math.round(months[k])) };
+}
+
+// ── RENDER CHARTS ─────────────────────────────────────────
+function renderCharts(entries, projectMultipliers) {
+  const section = document.getElementById('chartsSection');
+  if (!entries || entries.length === 0) { section.style.display = 'none'; return; }
+  section.style.display = '';
+
+  const weekly  = buildWeeklyData(entries, projectMultipliers);
+  const monthly = buildMonthlyData(entries, projectMultipliers);
+
+  const Navy   = 'rgba(35,45,99,0.85)';
+  const NavyB  = 'rgba(35,45,99,1)';
+  const Green  = 'rgba(0,200,117,0.85)';
+  const GreenB = 'rgba(0,200,117,1)';
+
+  const mkColors = (data) => ({
+    bg:  data.map((_, i) => i === data.length - 1 ? Green : Navy),
+    bdr: data.map((_, i) => i === data.length - 1 ? GreenB : NavyB),
+  });
+
+  function makeChartOpts() {
+    return {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(28,29,46,0.97)',
+          borderColor: 'rgba(245,246,250,0.15)',
+          borderWidth: 1,
+          titleColor: 'rgba(245,246,250,0.55)',
+          bodyColor: '#F5F6FA',
+          padding: 10,
+          callbacks: {
+            label: function(ctx) { return ' ' + ctx.parsed.y.toLocaleString('en-US') + ' tons'; }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(245,246,250,0.05)' },
+          ticks: { color: 'rgba(245,246,250,0.45)', font: { family: 'Barlow', size: 10 }, maxRotation: 45 },
+          border: { color: 'rgba(245,246,250,0.08)' }
+        },
+        y: {
+          grid: { color: 'rgba(245,246,250,0.05)' },
+          ticks: {
+            color: 'rgba(245,246,250,0.45)',
+            font: { family: 'Barlow Condensed', size: 11 },
+            callback: function(v) { return v >= 1000 ? (v/1000).toFixed(0)+'k' : v; }
+          },
+          border: { color: 'rgba(245,246,250,0.08)' }
+        }
+      }
+    };
   }
 
-  // Step 3: ssoSilent
-  try {
-    const r = await app.ssoSilent({ scopes: SCOPES });
-    showSuccess(r.accessToken);
-    return;
-  } catch(e) { console.log('[Auth] ssoSilent failed:', e.message); }
+  if (weeklyChartInst) { weeklyChartInst.destroy(); weeklyChartInst = null; }
+  const wc = mkColors(weekly.data);
+  weeklyChartInst = new Chart(document.getElementById('weeklyChart'), {
+    type: 'bar',
+    data: {
+      labels: weekly.labels,
+      datasets: [{ data: weekly.data, backgroundColor: wc.bg, borderColor: wc.bdr, borderWidth: 1, borderRadius: 4, borderSkipped: false }]
+    },
+    options: makeChartOpts()
+  });
 
-  // Step 4: Need interactive login
-  document.getElementById('spinner').style.display = 'none';
-  document.getElementById('status').textContent = 'Sign in with your Microsoft account to authorize the Project Status widgets.';
-  const btn = document.getElementById('signInBtn');
-  btn.style.display = 'block';
-  btn.addEventListener('click', () => {
-    btn.disabled = true;
-    btn.textContent = 'Redirecting to Microsoft…';
-    document.getElementById('status').textContent = 'You will be redirected to sign in, then returned here automatically.';
-    document.getElementById('spinner').style.display = 'block';
-    app.loginRedirect({ scopes: SCOPES });
+  if (monthlyChartInst) { monthlyChartInst.destroy(); monthlyChartInst = null; }
+  const mc = mkColors(monthly.data);
+  monthlyChartInst = new Chart(document.getElementById('monthlyChart'), {
+    type: 'bar',
+    data: {
+      labels: monthly.labels,
+      datasets: [{ data: monthly.data, backgroundColor: mc.bg, borderColor: mc.bdr, borderWidth: 1, borderRadius: 4, borderSkipped: false }]
+    },
+    options: makeChartOpts()
   });
 }
 
-run();
+function getDateRanges() {
+  const now  = new Date();
+  const tod  = today();
+  const yest = yesterday();
+  const yestEnd = new Date(yest); yestEnd.setHours(23,59,59,999);
+
+  // This week: Sun–Sat
+  const thisWeekStart = new Date(tod);
+  thisWeekStart.setDate(tod.getDate() - tod.getDay());
+  const thisWeekEnd = new Date(thisWeekStart); thisWeekEnd.setDate(thisWeekStart.getDate() + 6); thisWeekEnd.setHours(23,59,59,999);
+
+  // Last week
+  const lastWeekStart = new Date(thisWeekStart); lastWeekStart.setDate(thisWeekStart.getDate() - 7);
+  const lastWeekEnd   = new Date(thisWeekStart); lastWeekEnd.setDate(thisWeekStart.getDate() - 1); lastWeekEnd.setHours(23,59,59,999);
+
+  // This month
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const thisMonthEnd   = new Date(now.getFullYear(), now.getMonth()+1, 0, 23, 59, 59, 999);
+
+  // Last month
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const lastMonthEnd   = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+  return { yest, yestEnd, thisWeekStart, thisWeekEnd, lastWeekStart, lastWeekEnd, thisMonthStart, thisMonthEnd, lastMonthStart, lastMonthEnd };
+}
+
+// ── RENDER: Project Cards ──────────────────────────────────
+function val2(v) { return v || '—'; }
+
+function renderRows(items, accentClass) {
+  if (!items.length) return `<div class="card-state" style="color:var(--muted);font-style:italic">No ${MACHINE} projects found</div>`;
+  return items.map(item => `
+    <div class="project-row">
+      <div class="cell-customer">
+        <div class="field-label">Customer / Company</div>
+        <div class="field-value">${getCustomer(item)}</div>
+      </div>
+      <div class="cell-location">
+        <div class="field-label">Project Location</div>
+        <div class="field-value">${val2(item[COLS.location])}</div>
+      </div>
+      <div class="cell-product">
+        <div class="field-label">Product / Work</div>
+        <div class="field-value">${getMultiChoice(item, COLS.product)}</div>
+      </div>
+      <div class="cell-tonnage">
+        <div class="field-label">Contracted Tonnage</div>
+        <div class="field-value tonnage">${val2(item[COLS.tonnage] ? Number(item[COLS.tonnage]).toLocaleString() + ' T' : null)}</div>
+      </div>
+    </div>`).join('');
+}
+
+function setCards(activeItems, mobilItems) {
+  document.getElementById('activeBody').innerHTML  = renderRows(activeItems, 'card--active');
+  document.getElementById('mobilBody').innerHTML   = renderRows(mobilItems,  'card--mobil');
+  document.getElementById('activeCount').textContent = activeItems.length;
+  document.getElementById('mobilCount').textContent  = mobilItems.length;
+  document.getElementById('refreshBtn').classList.remove('loading');
+  document.getElementById('refreshBtn').textContent = '↻ Refresh';
+  document.getElementById('lastUpdated').textContent = `Updated ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+  document.getElementById('statusLine').textContent = `Authenticated · ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+
+  // Save the first active project title for production lookup
+  if (activeItems.length > 0) {
+    const first = activeItems[0];
+    activeProjectTitle = getCustomer(first) || null;
+    // Also try the location field as a possible job name match
+    // We'll match production entries by Project lookup Title
+    // Store the full item for reference
+    window._activeProjectItem = first;
+  }
+
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(loadData, REFRESH_MS);
+}
+
+// ── RENDER: Production Stats ───────────────────────────────
+function renderStats(stats, jobName, contractedTons) {
+  const pct = contractedTons > 0 ? Math.min((stats.total / contractedTons) * 100, 100) : null;
+
+  document.getElementById('prodJobLabel').textContent = jobName ? `— ${jobName}` : '';
+
+  const tiles = [
+    { label: 'Yesterday',   value: stats.yesterday,  highlight: true },
+    { label: 'This Week',   value: stats.thisWeek,   highlight: false },
+    { label: 'Last Week',   value: stats.lastWeek,   highlight: false },
+    { label: 'This Month',  value: stats.thisMonth,  highlight: false },
+    { label: 'Last Month',  value: stats.lastMonth,  highlight: false },
+  ];
+
+  const tilesHtml = tiles.map(t => `
+    <div class="stat-tile">
+      <div class="stat-label">${t.label}</div>
+      <div class="stat-value ${t.value > 0 ? (t.highlight ? 'highlight' : '') : 'dimmed'}">${fmtTons(t.value)}</div>
+      <div class="stat-unit">tons</div>
+    </div>`).join('');
+
+  const progressHtml = pct !== null ? `
+    <div class="progress-bar-wrap">
+      <div class="progress-label">
+        <span>Project Progress</span>
+        <span><strong>${fmtTons(stats.total)} T</strong> of ${Number(contractedTons).toLocaleString()} T contracted (${pct.toFixed(1)}%)</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill ${pct > 85 ? 'warn' : ''}" style="width:${pct}%"></div>
+      </div>
+    </div>` : `
+    <div class="progress-bar-wrap">
+      <div class="progress-label"><span>Total production for active project</span><strong>${fmtTons(stats.total)} T</strong></div>
+    </div>`;
+
+  document.getElementById('prodBody').innerHTML = `
+    <div class="stats-grid">${tilesHtml}</div>
+    ${progressHtml}`;
+}
+
+// ── FETCH: Project List ────────────────────────────────────
+async function fetchByStatus(token, status) {
+  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(LIST_NAME)}')/items`
+            + `?$select=Id,Title,${COLS.status},${COLS.machine},${COLS.location},${COLS.product},${COLS.tonnage},${COLS.bucketSize},${COLS.tonsPerYd},${COLS.tonsBucket},${COLS.customer}/Title`
+            + `&$expand=${COLS.customer}`
+            + `&$top=500`;
+
+  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
+  if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} — ${e.slice(0,300)}`); }
+  const all = (await r.json())?.d?.results ?? [];
+
+  return all.filter(item => {
+    const m = item[COLS.machine];
+    const machineMatch = m === MACHINE
+      || (typeof m === 'string' && m.split(';#').includes(MACHINE))
+      || (m?.results && m.results.includes(MACHINE));
+    return machineMatch && item[COLS.status] === status;
+  });
+}
+
+// ── FETCH: Production Data ─────────────────────────────────
+async function fetchProduction(token, projectTitle) {
+  // Fetch recent production entries — get up to 2 months back to cover all ranges
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 2);
+  const cutoffISO = cutoff.toISOString();
+
+  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
+            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`
+            + `&$expand=${PROD.project}`
+            + `&$filter=${PROD.date} ge datetime'${cutoffISO}'`
+            + `&$top=2000`
+            + `&$orderby=${PROD.date} desc`;
+
+  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
+  if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`Production fetch HTTP ${r.status} — ${e.slice(0,200)}`); }
+  const all = (await r.json())?.d?.results ?? [];
+
+  // Filter to entries matching our active project
+  const entries = all.filter(item => {
+    const proj = item[PROD.project];
+    const projTitle = proj?.Title || proj || '';
+    const jobName   = item[PROD.jobName] || '';
+    // Match by Project lookup title or Job Name choice field
+    return projTitle === projectTitle || jobName === projectTitle;
+  });
+
+  return entries;
+}
+
+// ── CALC: Tonnage per entry ────────────────────────────────
+// projectMultipliers: { bucketSize, tonsPerYd, tonsBucket } from Project List item
+function calcTons(entry, projectMultipliers) {
+  const buckets = parseFloat(entry[PROD.buckets]) || 0;
+  if (buckets === 0) return 0;
+
+  const { bucketSize, tonsPerYd, tonsBucket } = projectMultipliers;
+
+  // Primary formula: Yarder Buckets × Yarder Bucket Size × Tons/Yd
+  if (bucketSize > 0 && tonsPerYd > 0) {
+    return buckets * bucketSize * tonsPerYd;
+  }
+  // Secondary: Yarder Buckets × Tons/Bucket (pre-calc on project)
+  if (tonsBucket > 0) {
+    return buckets * tonsBucket;
+  }
+  // Fallback: entry-level fields if filled
+  const yardsPerBkt = parseFloat(entry[PROD.yardsPerBkt]) || 0;
+  const tonsPerYard = parseFloat(entry[PROD.tonsPerYard]) || 0;
+  if (yardsPerBkt > 0 && tonsPerYard > 0) {
+    return buckets * yardsPerBkt * tonsPerYard;
+  }
+  // Last resort: AcutalTons field on entry
+  return parseFloat(entry[PROD.actualTons]) || 0;
+}
+
+// ── AGGREGATE tonnage into time buckets ───────────────────
+function aggregateTons(entries, projectMultipliers) {
+  const ranges = getDateRanges();
+  const stats = { yesterday: 0, thisWeek: 0, lastWeek: 0, thisMonth: 0, lastMonth: 0, total: 0 };
+
+  entries.forEach(entry => {
+    const rawDate = entry[PROD.date];
+    if (!rawDate) return;
+    const d = new Date(rawDate);
+    const tons = calcTons(entry, projectMultipliers);
+    stats.total += tons;
+
+    if (d >= ranges.yest       && d <= ranges.yestEnd)       stats.yesterday += tons;
+    if (d >= ranges.thisWeekStart && d <= ranges.thisWeekEnd) stats.thisWeek  += tons;
+    if (d >= ranges.lastWeekStart && d <= ranges.lastWeekEnd) stats.lastWeek  += tons;
+    if (d >= ranges.thisMonthStart && d <= ranges.thisMonthEnd) stats.thisMonth += tons;
+    if (d >= ranges.lastMonthStart && d <= ranges.lastMonthEnd) stats.lastMonth += tons;
+  });
+
+  return stats;
+}
+
+// ── SHOW STATES ───────────────────────────────────────────
+function showSignIn() {
+  const html = `<div class="signin-box"><p>Sign in with your Microsoft account to load live project data.</p><button class="btn btn-signin" onclick="signIn()">🔐 Sign in with Microsoft</button></div>`;
+  document.getElementById('activeBody').innerHTML = html;
+  document.getElementById('mobilBody').innerHTML  = `<div class="card-state" style="color:var(--muted);font-style:italic">Sign in to load data</div>`;
+  document.getElementById('prodBody').innerHTML   = `<div class="production-state">Sign in to view production data</div>`;
+  document.getElementById('refreshBtn').classList.remove('loading');
+  document.getElementById('refreshBtn').textContent = '↻ Refresh';
+  document.getElementById('lastUpdated').textContent = 'Not signed in';
+}
+
+function showError(msg) {
+  const html = `<div class="card-error-box"><strong>⚠ Error</strong>${msg}</div>`;
+  document.getElementById('activeBody').innerHTML = html;
+  document.getElementById('mobilBody').innerHTML  = html;
+  document.getElementById('prodBody').innerHTML   = `<div class="production-error">⚠ ${msg}</div>`;
+  document.getElementById('refreshBtn').classList.remove('loading');
+  document.getElementById('refreshBtn').textContent = '↻ Retry';
+}
+
+// ── AUTH ──────────────────────────────────────────────────
+// ── AUTH STRATEGY ─────────────────────────────────────────
+// 1. On load: try ssoSilent (reuses M365 session, no UI, works in iframe)
+// 2. If that fails: show sign-in button → open top-level auth window
+// 3. Auth window does loginRedirect freely (not in iframe), closes on success
+// 4. Widget polls, reinits MSAL, picks up token
+
+const AUTH_WINDOW_URL = 'https://udadmin2026.github.io/Sharepoint/auth/';
+
+async function signIn() {
+  // Navigate the TOP SharePoint frame to the auth page.
+  // The auth page will do loginRedirect (no iframe restrictions at top level),
+  // then redirect back to the SharePoint page after login.
+  // On return the full page reloads, MSAL picks up the token from localStorage,
+  // and the widget loads silently via acquireTokenSilent.
+  try {
+    const returnTo = encodeURIComponent(window.top.location.href);
+    window.top.location.href = AUTH_WINDOW_URL + '?returnTo=' + returnTo;
+  } catch(e) {
+    // Cross-origin frame access blocked — navigate the iframe itself
+    window.location.href = AUTH_WINDOW_URL + '?returnTo=' + encodeURIComponent(window.location.href);
+  }
+}
+
+// Reinitialize MSAL from scratch so it re-reads localStorage written by auth window
+async function reinitMsal() {
+  try {
+    msalInstance = new window.msal.PublicClientApplication(msalConfig);
+    await msalInstance.initialize();
+    // Must call handleRedirectPromise after init to hydrate account cache from localStorage
+    await msalInstance.handleRedirectPromise().catch(() => {});
+    console.log('[Y171] MSAL reinit — accounts found:', msalInstance.getAllAccounts().length);
+  } catch(e) { console.warn('[Y171] MSAL reinit error:', e.message); }
+}
+
+async function getToken() {
+  // Tier 1: MSAL acquireTokenSilent from in-memory cache
+  const accounts = msalInstance.getAllAccounts();
+  console.log('[Y171] getToken — accounts:', accounts.length);
+  if (accounts.length > 0) {
+    try {
+      const r = await msalInstance.acquireTokenSilent({ scopes: loginRequest.scopes, account: accounts[0] });
+      console.log('[Y171] Token from acquireTokenSilent');
+      return r.accessToken;
+    } catch(e) { console.log('[Y171] acquireTokenSilent failed:', e.message); }
+  }
+
+  // Tier 2: ssoSilent with explicit resource hint
+  try {
+    const r = await msalInstance.ssoSilent({ scopes: loginRequest.scopes });
+    // Validate token is actually for SharePoint (not Graph or other resource)
+    const payload = JSON.parse(atob(r.accessToken.split('.')[1]));
+    const aud = payload.aud || '';
+    console.log('[Y171] ssoSilent token audience:', aud);
+    if (!aud.includes('sharepoint.com')) {
+      console.log('[Y171] Wrong audience — discarding token');
+      return null;
+    }
+    return r.accessToken;
+  } catch(e) {
+    console.log('[Y171] ssoSilent failed:', e.message);
+    return null;
+  }
+}
+
+function showSignInPending() {
+  const html = '<div class="signin-box"><p>Sign in window opened — complete sign in then this page will reload automatically.</p><div class="spinner" style="margin:12px auto 0"></div></div>';
+  document.getElementById('activeBody').innerHTML  = html;
+  document.getElementById('mobilBody').innerHTML   = '<div class="card-state" style="color:var(--muted);font-style:italic">Waiting for sign in…</div>';
+  document.getElementById('prodBody').innerHTML    = '<div class="production-state">Waiting for sign in…</div>';
+  document.getElementById('lastUpdated').textContent = 'Signing in…';
+}
+
+// ── LOAD ALL DATA ─────────────────────────────────────────
+async function loadData() {
+  document.getElementById('refreshBtn').classList.add('loading');
+  document.getElementById('refreshBtn').textContent = '↻ Loading…';
+
+  const token = await getToken();
+  if (!token) { showSignIn(); return; }
+
+  try {
+    // Step 1: Load project cards
+    const [activeItems, mobilItems] = await Promise.all([
+      fetchByStatus(token, 'Active'),
+      fetchByStatus(token, 'Mobilization Scheduled')
+    ]);
+    setCards(activeItems, mobilItems);
+
+    // Step 2: Load production data for first active project
+    if (activeItems.length > 0) {
+      const activeItem = activeItems[0];
+      const contractedTons = parseFloat(activeItem[COLS.tonnage]) || 0;
+
+      // Step 2b: Load Job Checklist for active project
+      try {
+        const jobRecord = await fetchJobChecklist(token, activeItem.Title || '');
+        renderJobDetails(jobRecord, activeItem.Title || '');
+      } catch(jobErr) {
+        console.warn('[Y171] Job checklist error:', jobErr);
+        renderJobDetails(null, activeItem.Title || '');
+      }
+
+      try {
+        // Try matching by project lookup title — we'll try a few strategies
+        // First get all recent production for this machine's job
+        const allProd = await fetchAllProduction(token);
+
+        // Find the project name used in production entries by trying to match
+        const jobName = findJobName(allProd, activeItem);
+        const filtered = allProd.filter(entry => matchesProject(entry, activeItem));
+
+        // Extract project-level ton multipliers from the active Project List item
+        const projectMultipliers = {
+          bucketSize: parseFloat(activeItem[COLS.bucketSize]) || 0,
+          tonsPerYd:  parseFloat(activeItem[COLS.tonsPerYd])  || 0,
+          tonsBucket: parseFloat(activeItem[COLS.tonsBucket]) || 0,
+        };
+
+        if (filtered.length === 0 && allProd.length > 0) {
+          document.getElementById('prodJobLabel').textContent = '— (no project match found)';
+          const stats = aggregateTons(allProd, projectMultipliers);
+          renderStats(stats, 'All Entries', contractedTons);
+          renderCharts(allProd, projectMultipliers);
+        } else {
+          const stats = aggregateTons(filtered, projectMultipliers);
+          renderStats(stats, jobName || activeItem.Title || '', contractedTons);
+          renderCharts(filtered, projectMultipliers);
+        }
+      } catch(prodErr) {
+        document.getElementById('prodBody').innerHTML = `<div class="production-error">⚠ Production data error: ${prodErr.message}</div>`;
+      }
+    } else {
+      document.getElementById('prodBody').innerHTML = `<div class="production-state">No active project — production stats unavailable</div>`;
+    }
+
+  } catch(err) {
+    console.error('[Y171]', err);
+    showError(err.message);
+  }
+}
+
+// Fetch ALL production entries with pagination (no date filter — captures full project history)
+async function fetchAllProduction(token) {
+  const baseSelect = `Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`;
+  const baseExpand = PROD.project;
+  let url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
+          + `?$select=${baseSelect}&$expand=${baseExpand}&$top=5000`;
+
+  const allResults = [];
+  let pageCount = 0;
+  const MAX_PAGES = 20; // safety cap — 20 × 5000 = 100,000 entries max
+
+  while (url && pageCount < MAX_PAGES) {
+    const r = await fetch(url, {
+      headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` }
+    });
+    if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} — ${e.slice(0,200)}`); }
+    const data = await r.json();
+    const results = data?.d?.results ?? [];
+    allResults.push(...results);
+
+    // SharePoint returns __next link when more pages exist
+    url = data?.d?.__next || null;
+    pageCount++;
+  }
+
+  return allResults;
+}
+
+// Match production entry to active project using Project List Title field
+// Production entries link back to Project List via the Project lookup —
+// that lookup Title (e.g. "RGI Hempstead 2025") IS the Project List Title column.
+function matchesProject(entry, activeItem) {
+  const prodProjTitle  = (entry[PROD.project]?.Title || '').trim().toLowerCase();
+  const activeProjTitle = (activeItem.Title || '').trim().toLowerCase();
+
+  // Direct match on Project List Title (most reliable)
+  if (activeProjTitle && prodProjTitle === activeProjTitle) return true;
+
+  // Fallback: partial word match (handles minor naming differences)
+  const words = activeProjTitle.split(/\s+/).filter(w => w.length > 3);
+  return words.length > 0 && words.every(w => prodProjTitle.includes(w));
+}
+
+// Get the job name label from matching entries
+function findJobName(entries, activeItem) {
+  const matched = entries.find(e => matchesProject(e, activeItem));
+  if (!matched) return null;
+  return matched[PROD.project]?.Title || activeItem.Title || null;
+}
+
+// ── JOB DETAILS TOGGLE ───────────────────────────────────
+// Sidebar job details - always expanded, no toggle needed
+function toggleJobDetails() {}
+
+// ── FETCH: Job Checklist ──────────────────────────────────
+async function fetchJobChecklist(token, projectTitle) {
+  const fields = `Id,${JOB.startDate},${JOB.crew},${JOB.rental},${JOB.fuel},${JOB.pitContact},${JOB.mobilize},${JOB.portaPotty},${JOB.hotel},${JOB.notes},${JOB.project}/Title`;
+  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(JOB_LIST)}')/items`
+            + `?$select=${fields}&$expand=${JOB.project}&$top=500`;
+
+  const r = await fetch(url, { headers: { 'Accept': 'application/json;odata=verbose', 'Authorization': `Bearer ${token}` } });
+  if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`Job Checklist HTTP ${r.status} — ${e.slice(0,200)}`); }
+  const all = (await r.json())?.d?.results ?? [];
+
+  // Match by Pit/Project lookup title
+  return all.find(item => {
+    const t = (item[JOB.project]?.Title || '').trim().toLowerCase();
+    return t === projectTitle.trim().toLowerCase();
+  }) || null;
+}
+
+// ── RENDER: Job Details ───────────────────────────────────
+function renderJobDetails(job, projectTitle) {
+  const section = document.getElementById('jobDetailsSection');
+  const body    = document.getElementById('jobDetailsBody');
+  const label   = document.getElementById('jobDetailsProject');
+
+  section.style.display = '';
+  label.textContent = projectTitle ? `— ${projectTitle}` : '';
+
+  if (!job) {
+    body.innerHTML = `<div class="jd-state">No job checklist found for this project</div>`;
+    return;
+  }
+
+  function fmtDate(d) {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function fmtNote(v) { return (v || '').trim() || '—'; }
+  function fmtCrew(item) {
+    const c = item[JOB.crew];
+    if (!c) return '—';
+    if (typeof c === 'string') return c;
+    if (c?.results) return c.results.join(', ') || '—';
+    return String(c);
+  }
+
+  const startDate  = job[JOB.startDate];
+  const fields = [
+    { label: 'Start Date',             value: fmtDate(startDate),          cls: 'date' },
+    { label: 'Crew',                   value: fmtCrew(job),                 cls: 'crew' },
+    { label: 'Pit Contact',            value: fmtNote(job[JOB.pitContact]), cls: '' },
+    { label: 'Fuel Company',           value: fmtNote(job[JOB.fuel]),       cls: '' },
+    { label: 'Mobilization Company',   value: fmtNote(job[JOB.mobilize]),   cls: '' },
+    { label: 'Porta Potty Company',    value: fmtNote(job[JOB.portaPotty]), cls: '' },
+    { label: 'Hotel Information',      value: fmtNote(job[JOB.hotel]),      cls: '' },
+    { label: 'Rental Comments',        value: fmtNote(job[JOB.rental]),     cls: '' },
+    { label: 'Notes',                  value: fmtNote(job[JOB.notes]),      cls: '', fullWidth: true },
+  ];
+
+  // Pair fields into 2-col grid; Notes always full-width
+  body.innerHTML = fields.map(f => `
+    <div class="jd-field${f.fullWidth ? ' full-width' : ''}">
+      <div class="jd-label">${f.label}</div>
+      <div class="jd-value${f.cls ? ' ' + f.cls : ''}">${f.value}</div>
+    </div>`).join('');
+}
+
+// ── DEBUG ────────────────────────────────────────────────
+function debugDump() {
+  const bar = document.getElementById('debugBar');
+  bar.style.display = '';
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.includes(CLIENT_ID)) keys.push(k);
+  }
+  if (keys.length === 0) {
+    bar.textContent = 'No MSAL keys found in localStorage for this clientId.
+
+All localStorage keys:
+' +
+      Array.from({length: localStorage.length}, (_, i) => localStorage.key(i)).join('
+');
+    return;
+  }
+  let out = 'MSAL keys found (' + keys.length + '):
+';
+  keys.forEach(k => {
+    try {
+      const v = JSON.parse(localStorage.getItem(k));
+      out += '
+--- ' + k.split('.').pop() + ' ---
+';
+      out += 'type: ' + (v.credentialType || v.authorityType || '?') + '
+';
+      if (v.target) out += 'scope: ' + v.target + '
+';
+      if (v.expiresOn) out += 'expires: ' + new Date(v.expiresOn * 1000).toLocaleTimeString() + '
+';
+      if (v.secret) out += 'token: [present, ' + v.secret.length + ' chars]
+';
+      if (v.accessToken) out += 'token: [present]
+';
+    } catch(e) { out += k + ': ' + e.message + '
+'; }
+  });
+  const directToken = getTokenFromStorage();
+  out += '
+getTokenFromStorage(): ' + (directToken ? '[FOUND - ' + directToken.length + ' chars]' : 'NULL');
+  bar.textContent = out;
+}
+
+// ── INIT ──────────────────────────────────────────────────
+async function init() {
+  msalInstance = new window.msal.PublicClientApplication(msalConfig);
+  await msalInstance.initialize();
+
+  try {
+    const redirectResult = await msalInstance.handleRedirectPromise();
+    if (redirectResult && redirectResult.accessToken) {
+      loadData(); return;
+    }
+  } catch(e) { console.warn('[Y171] Redirect handling:', e.message); }
+
+  loadData();
+}
+
+init();
+
+// ── AUTO-HEIGHT ───────────────────────────────────────────
+function notifyHeight() {
+  const h = document.documentElement.scrollHeight;
+  window.parent.postMessage({ type: 'setHeight', height: h }, '*');
+  try { if (window.frameElement) window.frameElement.style.height = h + 'px'; } catch(e) {}
+}
+if (window.ResizeObserver) { new ResizeObserver(notifyHeight).observe(document.body); }
+window.addEventListener('load', notifyHeight);
 </script>
 </body>
 </html>
