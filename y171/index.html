@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://alcdn.msauth.net/browser/2.38.1/js/msal-browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -128,7 +129,18 @@
     .jd-value.crew { font-weight: 600; color: var(--green); font-size: 13px; }
     .jd-state { padding: 20px 16px; text-align: center; color: var(--muted); font-size: 12px; }
 
+    /* ── CHARTS ── */
+    .charts-section { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; backdrop-filter: blur(12px); overflow: hidden; }
+    .chart-header { padding: 12px 18px 10px; border-bottom: 1px solid var(--border); border-left: 3px solid var(--blue); display: flex; align-items: baseline; gap: 10px; }
+    .chart-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--white); }
+    .chart-subtitle { font-size: 11px; color: var(--muted); }
+    .chart-body { padding: 14px 16px 16px; position: relative; }
+
     /* ── RESPONSIVE ── */
+    @media (max-width: 860px) {
+      .charts-section { grid-template-columns: 1fr; }
+    }
     @media (max-width: 860px) {
       /* Stack sidebar below main on tablets/mobile */
       .page-layout { grid-template-columns: 1fr; }
@@ -218,6 +230,24 @@
       </div>
       <div id="prodBody">
         <div class="production-state"><div class="spinner" style="margin:0 auto;"></div></div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-section" id="chartsSection" style="display:none">
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">⛏ Weekly Totals</div>
+          <div class="chart-subtitle">Tons per week</div>
+        </div>
+        <div class="chart-body"><canvas id="weeklyChart" height="200"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">📅 Monthly Totals</div>
+          <div class="chart-subtitle">Tons per month</div>
+        </div>
+        <div class="chart-body"><canvas id="monthlyChart" height="200"></canvas></div>
       </div>
     </div>
 
@@ -346,6 +376,146 @@ function weekStart(offset = 0) {
   d.setDate(d.getDate() - day + offset * 7); // Monday of target week... use Sun start
   d.setDate(d.getDate() - day);
   return d;
+}
+
+// ── CHART INSTANCES ──────────────────────────────────────
+let weeklyChartInst  = null;
+let monthlyChartInst = null;
+
+// ── BUILD WEEKLY CHART DATA (last 12 weeks) ───────────────
+function buildWeeklyData(entries, projectMultipliers) {
+  const today2 = new Date();
+  today2.setHours(0,0,0,0);
+  const dayOfWeek = today2.getDay();
+  const thisWeekSun = new Date(today2);
+  thisWeekSun.setDate(today2.getDate() - dayOfWeek);
+
+  const labels = [];
+  const keys   = [];
+  const weeks  = {};
+  for (let i = 11; i >= 0; i--) {
+    const weekStart = new Date(thisWeekSun);
+    weekStart.setDate(thisWeekSun.getDate() - i * 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setHours(23,59,59,999);
+    const mo  = weekStart.toLocaleDateString('en-US', { month: 'short' });
+    const day = weekStart.getDate();
+    const key = weekStart.toISOString().slice(0,10);
+    labels.push(`${mo} ${day}`);
+    keys.push({ key, start: new Date(weekStart), end: weekEnd });
+    weeks[key] = 0;
+  }
+  entries.forEach(entry => {
+    const raw = entry[PROD.date];
+    if (!raw) return;
+    const d = new Date(raw);
+    const tons = calcTons(entry, projectMultipliers);
+    for (const { key, start, end } of keys) {
+      if (d >= start && d <= end) { weeks[key] += tons; break; }
+    }
+  });
+  return { labels, data: keys.map(k => Math.round(weeks[k.key])) };
+}
+
+// ── BUILD MONTHLY CHART DATA (last 12 months) ────────────
+function buildMonthlyData(entries, projectMultipliers) {
+  const now2   = new Date();
+  const labels = [];
+  const keys   = [];
+  const months = {};
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now2.getFullYear(), now2.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    labels.push(label);
+    keys.push(key);
+    months[key] = 0;
+  }
+  entries.forEach(entry => {
+    const raw = entry[PROD.date];
+    if (!raw) return;
+    const d = new Date(raw);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const tons = calcTons(entry, projectMultipliers);
+    if (key in months) months[key] += tons;
+  });
+  return { labels, data: keys.map(k => Math.round(months[k])) };
+}
+
+// ── RENDER CHARTS ─────────────────────────────────────────
+function renderCharts(entries, projectMultipliers) {
+  const section = document.getElementById('chartsSection');
+  if (!entries || entries.length === 0) { section.style.display = 'none'; return; }
+  section.style.display = '';
+
+  const weekly  = buildWeeklyData(entries, projectMultipliers);
+  const monthly = buildMonthlyData(entries, projectMultipliers);
+
+  const Navy   = 'rgba(35,45,99,0.85)';
+  const NavyB  = 'rgba(35,45,99,1)';
+  const Green  = 'rgba(0,200,117,0.85)';
+  const GreenB = 'rgba(0,200,117,1)';
+
+  const mkColors = (data) => ({
+    bg:  data.map((_, i) => i === data.length - 1 ? Green : Navy),
+    bdr: data.map((_, i) => i === data.length - 1 ? GreenB : NavyB),
+  });
+
+  const baseOpts = {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(28,29,46,0.97)',
+        borderColor: 'rgba(245,246,250,0.15)',
+        borderWidth: 1,
+        titleColor: 'rgba(245,246,250,0.55)',
+        bodyColor: '#F5F6FA',
+        padding: 10,
+        callbacks: { label: ctx => ` ${ctx.parsed.y.toLocaleString('en-US')} tons` }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(245,246,250,0.05)' },
+        ticks: { color: 'rgba(245,246,250,0.45)', font: { family: 'Barlow', size: 10 }, maxRotation: 45 },
+        border: { color: 'rgba(245,246,250,0.08)' }
+      },
+      y: {
+        grid: { color: 'rgba(245,246,250,0.05)' },
+        ticks: {
+          color: 'rgba(245,246,250,0.45)',
+          font: { family: 'Barlow Condensed', size: 11 },
+          callback: v => v >= 1000 ? (v/1000).toFixed(0)+'k' : v
+        },
+        border: { color: 'rgba(245,246,250,0.08)' }
+      }
+    }
+  };
+
+  if (weeklyChartInst) { weeklyChartInst.destroy(); weeklyChartInst = null; }
+  const wc = mkColors(weekly.data);
+  weeklyChartInst = new Chart(document.getElementById('weeklyChart'), {
+    type: 'bar',
+    data: {
+      labels: weekly.labels,
+      datasets: [{ data: weekly.data, backgroundColor: wc.bg, borderColor: wc.bdr, borderWidth: 1, borderRadius: 4, borderSkipped: false }]
+    },
+    options: structuredClone(baseOpts)
+  });
+
+  if (monthlyChartInst) { monthlyChartInst.destroy(); monthlyChartInst = null; }
+  const mc = mkColors(monthly.data);
+  monthlyChartInst = new Chart(document.getElementById('monthlyChart'), {
+    type: 'bar',
+    data: {
+      labels: monthly.labels,
+      datasets: [{ data: monthly.data, backgroundColor: mc.bg, borderColor: mc.bdr, borderWidth: 1, borderRadius: 4, borderSkipped: false }]
+    },
+    options: structuredClone(baseOpts)
+  });
 }
 
 function getDateRanges() {
@@ -657,9 +827,11 @@ async function loadData() {
           document.getElementById('prodJobLabel').textContent = '— (no project match found)';
           const stats = aggregateTons(allProd, projectMultipliers);
           renderStats(stats, 'All Entries', contractedTons);
+          renderCharts(allProd, projectMultipliers);
         } else {
           const stats = aggregateTons(filtered, projectMultipliers);
           renderStats(stats, jobName || activeItem.Title || '', contractedTons);
+          renderCharts(filtered, projectMultipliers);
         }
       } catch(prodErr) {
         document.getElementById('prodBody').innerHTML = `<div class="production-error">⚠ Production data error: ${prodErr.message}</div>`;
