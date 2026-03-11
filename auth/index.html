@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>United Dredging — Sign In</title>
+  <script src="https://alcdn.msauth.net/browser/2.38.1/js/msal-browser.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #1C1D2E;
+      font-family: -apple-system, 'Barlow', sans-serif;
+      color: #F5F6FA;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 24px;
+    }
+    .card {
+      background: rgba(35,45,99,0.5);
+      border: 1px solid rgba(245,246,250,0.12);
+      border-radius: 14px;
+      padding: 40px 36px;
+      max-width: 380px;
+      width: 100%;
+      text-align: center;
+    }
+    .logo { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: rgba(245,246,250,0.45); margin-bottom: 24px; }
+    .logo strong { display: block; font-size: 22px; font-weight: 800; color: #F5F6FA; letter-spacing: 1px; margin-bottom: 4px; }
+    .status { font-size: 14px; color: rgba(245,246,250,0.65); line-height: 1.6; margin-bottom: 20px; min-height: 44px; }
+    .spinner { width: 28px; height: 28px; border: 3px solid rgba(245,246,250,0.15); border-top-color: #DA0039; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .btn { background: #DA0039; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; letter-spacing: 0.5px; padding: 12px 28px; cursor: pointer; width: 100%; }
+    .btn:hover { background: #b8002f; }
+    .success { color: #00C875; font-size: 28px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo"><strong>United Dredging</strong>SharePoint Widgets</div>
+  <div id="status" class="status">Checking your Microsoft session…</div>
+  <div id="spinner" class="spinner"></div>
+  <button id="signInBtn" class="btn" onclick="doSignIn()" style="display:none">Sign in with Microsoft</button>
+</div>
+
+<script>
+const CLIENT_ID = '69affe29-c1bc-4e7a-89f6-583211c1d3f2';
+const TENANT_ID = 'f0c675e2-30ad-41ca-9424-b4eac122977b';
+const REDIRECT  = 'https://udadmin2026.github.io/Sharepoint/auth/';
+
+const msalConfig = {
+  auth: {
+    clientId:    CLIENT_ID,
+    authority:   'https://login.microsoftonline.com/' + TENANT_ID,
+    redirectUri: REDIRECT,
+  },
+  cache: {
+    cacheLocation: 'localStorage',
+    storeAuthStateInCookie: true,
+  }
+};
+const loginRequest = { scopes: ['https://jddredging.sharepoint.com/AllSites.Read'] };
+
+async function init() {
+  const msal = new msal.PublicClientApplication(msalConfig);
+  await msal.initialize();
+
+  // Handle redirect response (coming back from Microsoft login)
+  try {
+    const result = await msal.handleRedirectPromise();
+    if (result && result.accessToken) {
+      showSuccess();
+      return;
+    }
+  } catch(e) {
+    console.warn('Redirect error:', e);
+  }
+
+  // Try silent SSO first
+  try {
+    const accounts = msal.getAllAccounts();
+    if (accounts.length > 0) {
+      await msal.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
+      showSuccess();
+      return;
+    }
+    // No cached account — try ssoSilent
+    await msal.ssoSilent(loginRequest);
+    showSuccess();
+    return;
+  } catch(e) {
+    // Silent failed — need interactive
+    showSignIn(msal);
+  }
+}
+
+function showSuccess() {
+  document.getElementById('spinner').style.display = 'none';
+  document.getElementById('status').innerHTML = '<div class="success">✓</div>Signed in successfully.<br>This window will close…';
+  setTimeout(() => { try { window.close(); } catch(e) {} }, 1500);
+}
+
+function showSignIn(msalInst) {
+  document.getElementById('spinner').style.display = 'none';
+  document.getElementById('status').textContent = 'Sign in with your Microsoft account to authorize the widgets.';
+  const btn = document.getElementById('signInBtn');
+  btn.style.display = '';
+  btn.onclick = () => msalInst.loginRedirect(loginRequest);
+}
+
+// Fix: can't use `new msal.PublicClientApplication` when var is also named msal
+async function run() {
+  const msalInst = new window.msal.PublicClientApplication(msalConfig);
+  await msalInst.initialize();
+
+  try {
+    const result = await msalInst.handleRedirectPromise();
+    if (result && result.accessToken) { showSuccess(); return; }
+  } catch(e) {}
+
+  try {
+    const accounts = msalInst.getAllAccounts();
+    if (accounts.length > 0) {
+      await msalInst.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
+      showSuccess(); return;
+    }
+    await msalInst.ssoSilent(loginRequest);
+    showSuccess(); return;
+  } catch(e) {
+    showSignIn(msalInst);
+  }
+}
+
+run();
+</script>
+</body>
+</html>
