@@ -12,18 +12,17 @@
     .card { background: rgba(35,45,99,0.5); border: 1px solid rgba(245,246,250,0.12);
       border-radius: 14px; padding: 40px 36px; max-width: 380px; width: 100%; text-align: center; }
     .logo { font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
-      color: rgba(245,246,250,0.4); margin-bottom: 24px; }
+      color: rgba(245,246,250,0.4); margin-bottom: 28px; }
     .logo strong { display: block; font-size: 22px; font-weight: 800; color: #F5F6FA;
       letter-spacing: 1px; margin-bottom: 4px; }
-    .status { font-size: 14px; color: rgba(245,246,250,0.65); line-height: 1.6;
-      margin-bottom: 20px; min-height: 48px; }
+    .status { font-size: 14px; color: rgba(245,246,250,0.65); line-height: 1.6; margin-bottom: 20px; }
     .spinner { width: 28px; height: 28px; border: 3px solid rgba(245,246,250,0.15);
-      border-top-color: #DA0039; border-radius: 50%; animation: spin 0.8s linear infinite;
-      margin: 0 auto 20px; }
+      border-top-color: #DA0039; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .btn { background: #DA0039; color: #fff; border: none; border-radius: 8px;
-      font-size: 14px; font-weight: 700; padding: 12px 28px; cursor: pointer; width: 100%; display: none; }
+      font-size: 14px; font-weight: 700; padding: 12px 28px; cursor: pointer; width: 100%; }
     .btn:hover { background: #b8002f; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
     .check { color: #00C875; font-size: 36px; margin-bottom: 12px; }
   </style>
 </head>
@@ -32,84 +31,82 @@
   <div class="logo"><strong>United Dredging</strong>SharePoint Widgets</div>
   <div id="spinner" class="spinner"></div>
   <div id="status" class="status">Checking your Microsoft session…</div>
-  <button id="signInBtn" class="btn">Sign in with Microsoft</button>
+  <button id="signInBtn" class="btn" style="display:none">Sign in with Microsoft</button>
 </div>
 <script>
-const CLIENT  = '69affe29-c1bc-4e7a-89f6-583211c1d3f2';
-const TENANT  = 'f0c675e2-30ad-41ca-9424-b4eac122977b';
+const CLIENT   = '69affe29-c1bc-4e7a-89f6-583211c1d3f2';
+const TENANT   = 'f0c675e2-30ad-41ca-9424-b4eac122977b';
 const REDIRECT = 'https://udadmin2026.github.io/Sharepoint/auth/';
 const SCOPES   = ['https://jddredging.sharepoint.com/AllSites.Read'];
-const WIDGET_ORIGIN = 'https://udadmin2026.github.io';
+
+// returnTo is the SharePoint page URL we came from — we'll go back there after auth
+const params   = new URLSearchParams(window.location.search);
+const returnTo = params.get('returnTo') || 'https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx';
 
 const cfg = {
   auth: { clientId: CLIENT, authority: 'https://login.microsoftonline.com/' + TENANT, redirectUri: REDIRECT },
   cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
 };
 
-function sendTokenToOpener(token) {
-  // Send token back to widget iframe via the opener window
-  if (window.opener && !window.opener.closed) {
-    try {
-      window.opener.postMessage({ type: 'authToken', token: token }, WIDGET_ORIGIN);
-      console.log('[Auth] Token sent to opener via postMessage');
-    } catch(e) { console.warn('[Auth] postMessage failed:', e); }
-  }
-}
-
-function showSuccess(token) {
+function showSuccess() {
   document.getElementById('spinner').style.display = 'none';
-  document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in successfully.<br>Returning to SharePoint…';
-  sendTokenToOpener(token);
-  setTimeout(() => {
-    try { window.close(); } catch(e) {}
-    setTimeout(() => {
-      document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in! You may close this window.';
-    }, 2000);
-  }, 1000);
+  document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in! Returning to SharePoint…';
+  // Redirect back to SharePoint — full page load means MSAL finds token in localStorage
+  setTimeout(() => { window.location.href = returnTo; }, 1200);
 }
 
 async function run() {
   const app = new window.msal.PublicClientApplication(cfg);
   await app.initialize();
 
-  // Step 1: Handle redirect response (we ARE the redirect target)
+  // Handle redirect response — this fires when Microsoft redirects back here after login
   try {
     const result = await app.handleRedirectPromise();
     if (result && result.accessToken) {
-      showSuccess(result.accessToken);
+      showSuccess();
       return;
     }
-  } catch(e) { console.warn('[Auth] handleRedirectPromise:', e.message); }
+  } catch(e) { console.warn('handleRedirectPromise:', e.message); }
 
-  // Step 2: Try silent with cached account
+  // Try silent with existing cached account
   const accounts = app.getAllAccounts();
   if (accounts.length > 0) {
     try {
-      const r = await app.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
-      showSuccess(r.accessToken);
+      await app.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
+      showSuccess();
       return;
-    } catch(e) { console.log('[Auth] silent failed:', e.message); }
+    } catch(e) {}
   }
 
-  // Step 3: ssoSilent
+  // Try ssoSilent (reuse M365 session)
   try {
-    const r = await app.ssoSilent({ scopes: SCOPES });
-    showSuccess(r.accessToken);
+    await app.ssoSilent({ scopes: SCOPES });
+    showSuccess();
     return;
-  } catch(e) { console.log('[Auth] ssoSilent failed:', e.message); }
+  } catch(e) {}
 
-  // Step 4: Need interactive login
+  // Need interactive — show button
   document.getElementById('spinner').style.display = 'none';
-  document.getElementById('status').textContent = 'Sign in with your Microsoft account to authorize the Project Status widgets.';
+  document.getElementById('status').textContent = 'Sign in with your Microsoft account to access Project Status data.';
   const btn = document.getElementById('signInBtn');
   btn.style.display = 'block';
   btn.addEventListener('click', () => {
     btn.disabled = true;
-    btn.textContent = 'Redirecting to Microsoft…';
-    document.getElementById('status').textContent = 'You will be redirected to sign in, then returned here automatically.';
+    btn.textContent = 'Redirecting…';
     document.getElementById('spinner').style.display = 'block';
+    // Store returnTo in localStorage so we can use it after the redirect chain completes
+    localStorage.setItem('ud_auth_returnTo', returnTo);
     app.loginRedirect({ scopes: SCOPES });
   });
+
+  // After loginRedirect, Microsoft sends browser back here.
+  // handleRedirectPromise (above) catches that and calls showSuccess() → returnTo.
+  // BUT if returnTo was lost, recover it from localStorage:
+  const storedReturn = localStorage.getItem('ud_auth_returnTo');
+  if (storedReturn && storedReturn !== returnTo) {
+    // We're in the post-redirect case with a stored URL
+    // handleRedirectPromise already handled it above if token was present
+  }
 }
 
 run();
