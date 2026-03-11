@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Y171 — Project Status</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --navy:    #1C1D2E;
+      --blue:    #232D63;
+      --red:     #DA0039;
+      --green:   #00C875;
+      --amber:   #FFAB00;
+      --white:   #F5F6FA;
+      --muted:   rgba(245,246,250,0.55);
+      --card-bg: rgba(35,45,99,0.45);
+      --border:  rgba(245,246,250,0.12);
+    }
+    html, body { min-height: 100%; background: var(--navy); font-family: 'Barlow', sans-serif; color: var(--white); }
+    body {
+      background:
+        radial-gradient(ellipse 80% 60% at 10% 0%, rgba(35,45,99,0.6) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 90% 100%, rgba(218,0,57,0.08) 0%, transparent 55%),
+        var(--navy);
+      padding: 28px 24px 40px;
+    }
+
+    /* HEADER */
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; flex-wrap: wrap; gap: 12px; }
+    .header-left { display: flex; align-items: center; gap: 14px; }
+    .unit-badge {
+      background: var(--red); font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+      font-size: 22px; letter-spacing: 1px; padding: 6px 14px 5px; border-radius: 6px; line-height: 1; text-transform: uppercase;
+    }
+    .header-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 26px; letter-spacing: 0.5px; line-height: 1.1; }
+    .header-title span { display: block; font-size: 12px; font-weight: 400; font-family: 'Barlow', sans-serif; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+    .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .refresh-info { font-size: 11px; color: var(--muted); letter-spacing: 0.5px; text-align: right; }
+    .refresh-info strong { display: block; font-size: 12px; color: rgba(245,246,250,0.75); }
+
+    .btn {
+      background: var(--blue); border: 1px solid var(--border); color: var(--white);
+      font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 600;
+      letter-spacing: 1px; text-transform: uppercase; padding: 7px 16px; border-radius: 6px;
+      cursor: pointer; transition: background 0.18s, transform 0.1s; white-space: nowrap;
+    }
+    .btn:hover { background: #2d3a80; }
+    .btn:active { transform: scale(0.97); }
+    .btn.spinning { opacity: 0.6; pointer-events: none; }
+    .btn-debug { background: rgba(255,171,0,0.12); border-color: rgba(255,171,0,0.3); color: var(--amber); font-size: 12px; }
+    .btn-debug:hover { background: rgba(255,171,0,0.22); }
+
+    /* CARDS */
+    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+    .status-card {
+      background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px;
+      backdrop-filter: blur(12px); overflow: hidden; display: flex; flex-direction: column;
+      animation: fadeUp 0.45s ease both;
+    }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+    .card-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 12px; border-bottom: 1px solid var(--border); }
+    .status-pill { display: flex; align-items: center; gap: 8px; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 1.2px; text-transform: uppercase; }
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .card--active .status-dot  { background: var(--green); animation: pg 2s infinite; }
+    .card--mobil  .status-dot  { background: var(--amber); animation: pa 2s infinite; }
+    .card--active .card-header { border-left: 3px solid var(--green); }
+    .card--mobil  .card-header { border-left: 3px solid var(--amber); }
+    .card--active .status-pill { color: var(--green); }
+    .card--mobil  .status-pill { color: var(--amber); }
+    @keyframes pg { 0%,100%{box-shadow:0 0 6px var(--green);} 50%{box-shadow:0 0 14px var(--green),0 0 24px rgba(0,200,117,.3);} }
+    @keyframes pa { 0%,100%{box-shadow:0 0 6px var(--amber);} 50%{box-shadow:0 0 14px var(--amber),0 0 24px rgba(255,171,0,.3);} }
+    .count-badge { background: rgba(245,246,250,0.1); border: 1px solid var(--border); border-radius: 20px; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 600; padding: 2px 10px; color: var(--muted); }
+
+    /* PROJECT ROWS */
+    .card-body { flex: 1; display: flex; flex-direction: column; }
+    .project-row { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; gap: 2px 16px; padding: 14px 18px; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+    .project-row:last-child { border-bottom: none; }
+    .project-row:hover { background: rgba(245,246,250,0.04); }
+    .field-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 2px; }
+    .field-value { font-size: 14px; font-weight: 600; color: var(--white); line-height: 1.3; }
+    .field-value.tonnage { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
+    .card--active .field-value.tonnage { color: var(--green); }
+    .card--mobil  .field-value.tonnage { color: var(--amber); }
+    .cell-customer { grid-column: 1; grid-row: 1; }
+    .cell-location { grid-column: 2; grid-row: 1; }
+    .cell-product  { grid-column: 1; grid-row: 2; }
+    .cell-tonnage  { grid-column: 2; grid-row: 2; }
+
+    /* STATES */
+    .card-empty { padding: 32px 18px; text-align: center; color: var(--muted); font-size: 13px; font-style: italic; flex: 1; display: flex; align-items: center; justify-content: center; }
+    .card-error { padding: 16px; margin: 12px 14px; background: rgba(218,0,57,0.12); border: 1px solid rgba(218,0,57,0.35); border-radius: 8px; font-size: 12px; color: #ff6b8a; line-height: 1.6; }
+    .card-error strong { display: block; margin-bottom: 4px; font-size: 13px; }
+
+    /* FOOTER */
+    .footer { margin-top: 20px; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+
+    /* DEBUG PANEL */
+    .debug-panel { display: none; margin-top: 20px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,171,0,0.3); border-radius: 10px; overflow: hidden; }
+    .debug-panel.open { display: block; }
+    .debug-header { background: rgba(255,171,0,0.1); padding: 10px 16px; font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 700; color: var(--amber); letter-spacing: 1px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+    .debug-body { padding: 16px; }
+    .debug-body p { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.6; }
+    .api-url { display: block; font-family: 'Courier New', monospace; font-size: 10px; background: rgba(0,0,0,0.35); padding: 10px 14px; border-radius: 6px; color: #a8d8ff; word-break: break-all; margin-bottom: 14px; user-select: all; }
+    .col-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
+    .col-table th { text-align: left; padding: 6px 10px; background: rgba(245,246,250,0.07); color: var(--muted); font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; }
+    .col-table td { padding: 6px 10px; border-top: 1px solid var(--border); font-family: 'Courier New', monospace; color: #a8d8ff; font-size: 11px; }
+    .col-table td:first-child { color: var(--white); font-family: 'Barlow', sans-serif; }
+    #debugStatus { color: var(--amber); font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+    /* SPINNER */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(245,246,250,0.2); border-top-color: var(--white); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="unit-badge">Y171</div>
+    <div class="header-title">
+      Project Status
+      <span>United Dredging — Live from SharePoint</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="refresh-info">
+      <strong id="lastUpdated">Loading…</strong>
+      Auto-refresh every 2 min
+    </div>
+    <button class="btn btn-debug" onclick="toggleDebug()">🔧 Column Lookup</button>
+    <button class="btn" id="refreshBtn" onclick="loadData()">↻ Refresh</button>
+  </div>
+</div>
+
+<div class="cards-grid">
+  <div class="status-card card--active">
+    <div class="card-header">
+      <div class="status-pill"><div class="status-dot"></div>Active</div>
+      <div class="count-badge" id="activeCount">—</div>
+    </div>
+    <div class="card-body" id="activeBody">
+      <div class="card-empty"><span class="spinner"></span> Loading…</div>
+    </div>
+  </div>
+
+  <div class="status-card card--mobil">
+    <div class="card-header">
+      <div class="status-pill"><div class="status-dot"></div>Mobilization Scheduled</div>
+      <div class="count-badge" id="mobilCount">—</div>
+    </div>
+    <div class="card-body" id="mobilBody">
+      <div class="card-empty"><span class="spinner"></span> Loading…</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <div>Source: <strong>Project List</strong> &nbsp;·&nbsp; Machine = Y171 &nbsp;·&nbsp; jddredging.sharepoint.com/sites/UnitedDredging</div>
+</div>
+
+<!-- COLUMN LOOKUP DEBUG PANEL -->
+<div class="debug-panel" id="debugPanel">
+  <div class="debug-header">
+    🔧 Column Internal Name Lookup
+    <span id="debugStatus"></span>
+  </div>
+  <div class="debug-body">
+    <p>
+      SharePoint encodes special characters in column names — spaces become <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-family:monospace">_x0020_</code> and slashes become <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-family:monospace">_x002f_</code>.
+      Click <strong>Fetch Column Names</strong> to see the exact internal names for the Project List, then update the <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-family:monospace">COLS</code> object in the script if any are wrong.
+    </p>
+    <div class="api-url" id="apiUrl">Loading URL…</div>
+    <button class="btn" onclick="loadColumns()" style="margin-bottom:12px">↻ Fetch Column Names</button>
+    <div id="colTableWrap"></div>
+  </div>
+</div>
+
+<script>
+  // ═══════════════════════════════════════════════════
+  // CONFIGURATION
+  // ═══════════════════════════════════════════════════
+  const SITE_URL  = 'https://jddredging.sharepoint.com/sites/UnitedDredging';
+  const LIST_NAME = 'Project List';
+
+  // These are best-guess internal names. Run Column Lookup to verify.
+  // If a field shows "—" for every row, its internal name here is wrong.
+  const COLS = {
+    machine:  'Machine',
+    status:   'Status',
+    customer: 'Customer_x002f_Company',
+    location: 'Project_x0020_Location',
+    product:  'Product_x002f_Work',
+    tonnage:  'Estimated_x0020_Tonnage',
+  };
+
+  const REFRESH_MS = 2 * 60 * 1000;
+  let refreshTimer = null;
+
+  // ═══════════════════════════════════════════════════
+  // FETCH
+  // ═══════════════════════════════════════════════════
+  async function fetchByStatus(status) {
+    const select = ['Id', COLS.customer, COLS.location, COLS.product, COLS.tonnage].join(',');
+    const filter  = `${COLS.machine} eq 'Y171' and ${COLS.status} eq '${status}'`;
+    const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(LIST_NAME)}')/items`
+              + `?$select=${select}`
+              + `&$filter=${encodeURIComponent(filter)}`
+              + `&$orderby=Id desc&$top=50`;
+
+    const r = await fetch(url, { headers: { Accept: 'application/json;odata=verbose' }, credentials: 'same-origin' });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      throw new Error(`HTTP ${r.status} ${r.statusText}${txt ? ' — ' + txt.slice(0,180) : ''}`);
+    }
+    return (await r.json())?.d?.results ?? [];
+  }
+
+  // ═══════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════
+  const v = val => (val !== null && val !== undefined && String(val).trim()) ? String(val).trim() : '—';
+
+  const fmtT = raw => {
+    if (raw === null || raw === undefined || raw === '') return '—';
+    const n = parseFloat(String(raw).replace(/,/g,''));
+    return isNaN(n) ? String(raw) : n.toLocaleString('en-US') + ' T';
+  };
+
+  function renderRows(items) {
+    if (!items.length) return `<div class="card-empty">No Y171 projects found</div>`;
+    return items.map(item => `
+      <div class="project-row">
+        <div class="cell-customer"><div class="field-label">Customer / Company</div><div class="field-value">${v(item[COLS.customer])}</div></div>
+        <div class="cell-location"><div class="field-label">Project Location</div><div class="field-value">${v(item[COLS.location])}</div></div>
+        <div class="cell-product"><div class="field-label">Product / Work</div><div class="field-value">${v(item[COLS.product])}</div></div>
+        <div class="cell-tonnage"><div class="field-label">Contracted Tonnage</div><div class="field-value tonnage">${fmtT(item[COLS.tonnage])}</div></div>
+      </div>`).join('');
+  }
+
+  function renderError(err) {
+    let hint = '';
+    if (/401|403/.test(err.message)) hint = 'Authentication error — this file must be served from the same SharePoint site, not opened locally.';
+    else if (/404/.test(err.message))  hint = `List "${LIST_NAME}" not found — check the LIST_NAME constant in the script.`;
+    else if (/400/.test(err.message))  hint = 'Bad request — a column internal name in COLS is likely wrong. Use 🔧 Column Lookup to find correct names.';
+    else hint = 'Use 🔧 Column Lookup to verify column internal names match the COLS object in the script.';
+    return `<div class="card-error"><strong>⚠ Could not load data</strong>${hint}<br><br><small style="font-family:monospace;opacity:.7">${err.message.replace(/</g,'&lt;')}</small></div>`;
+  }
+
+  // ═══════════════════════════════════════════════════
+  // MAIN LOAD
+  // ═══════════════════════════════════════════════════
+  async function loadData() {
+    const btn = document.getElementById('refreshBtn');
+    btn.classList.add('spinning'); btn.textContent = '↻ Loading…';
+    try {
+      const [activeItems, mobilItems] = await Promise.all([fetchByStatus('Active'), fetchByStatus('Mobilization Scheduled')]);
+      document.getElementById('activeBody').innerHTML  = renderRows(activeItems);
+      document.getElementById('activeCount').textContent = activeItems.length;
+      document.getElementById('mobilBody').innerHTML   = renderRows(mobilItems);
+      document.getElementById('mobilCount').textContent = mobilItems.length;
+    } catch (err) {
+      const h = renderError(err);
+      document.getElementById('activeBody').innerHTML = h;
+      document.getElementById('mobilBody').innerHTML  = h;
+      console.error('[Y171]', err);
+    }
+    document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+    btn.classList.remove('spinning'); btn.textContent = '↻ Refresh';
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(loadData, REFRESH_MS);
+  }
+
+  // ═══════════════════════════════════════════════════
+  // COLUMN LOOKUP
+  // ═══════════════════════════════════════════════════
+  function toggleDebug() {
+    const p = document.getElementById('debugPanel');
+    p.classList.toggle('open');
+    if (p.classList.contains('open')) {
+      document.getElementById('apiUrl').textContent =
+        `${SITE_URL}/_api/web/lists/getbytitle('${LIST_NAME}')/fields?$filter=Hidden eq false and ReadOnlyField eq false&$select=Title,InternalName,TypeAsString&$orderby=Title`;
+    }
+  }
+
+  async function loadColumns() {
+    const wrap = document.getElementById('colTableWrap');
+    const stat = document.getElementById('debugStatus');
+    wrap.innerHTML = `<div style="color:var(--muted);font-size:12px"><span class="spinner"></span> Fetching…</div>`;
+    stat.textContent = '';
+    const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(LIST_NAME)}')/fields`
+              + `?$filter=Hidden eq false and ReadOnlyField eq false`
+              + `&$select=Title,InternalName,TypeAsString&$orderby=Title`;
+    try {
+      const r = await fetch(url, { headers: { Accept: 'application/json;odata=verbose' }, credentials: 'same-origin' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const fields = (await r.json())?.d?.results ?? [];
+      stat.textContent = `${fields.length} columns`;
+      wrap.innerHTML = `<table class="col-table">
+        <thead><tr><th>Display Name</th><th>Internal Name → use in COLS</th><th>Type</th></tr></thead>
+        <tbody>${fields.map(f=>`<tr><td>${f.Title}</td><td>${f.InternalName}</td><td style="color:var(--muted)">${f.TypeAsString}</td></tr>`).join('')}</tbody>
+      </table>`;
+    } catch(err) {
+      wrap.innerHTML = `<div class="card-error"><strong>⚠ Could not fetch columns</strong>${err.message}</div>`;
+    }
+  }
+
+  loadData();
+</script>
+</body>
+</html>
