@@ -181,7 +181,7 @@ function renderRows(items) {
     <div class="project-row">
       <div class="cell-customer"><div class="field-label">Customer / Company</div><div class="field-value">${getCustomer(item)}</div></div>
       <div class="cell-location"><div class="field-label">Project Location</div><div class="field-value">${val(item[COLS.location])}</div></div>
-      <div class="cell-product"><div class="field-label">Product / Work</div><div class="field-value">${val(item[COLS.product])}</div></div>
+      <div class="cell-product"><div class="field-label">Product / Work</div><div class="field-value">${getMultiChoice(item, COLS.product)}</div></div>
       <div class="cell-tonnage"><div class="field-label">Contracted Tonnage</div><div class="field-value tonnage">${ton(item[COLS.tonnage])}</div></div>
     </div>`).join('');
 }
@@ -290,6 +290,15 @@ function getCustomer(item) {
   if (typeof c === 'string') return c;
   if (c?.Title) return c.Title;
   return '—';
+}
+
+// Helper: get value from multi-choice field (returns array in .results)
+function getMultiChoice(item, col) {
+  const v = item[col];
+  if (!v) return '—';
+  if (typeof v === 'string') return v;
+  if (v?.results && Array.isArray(v.results)) return v.results.join(', ') || '—';
+  return String(v);
 }
 
 async function loadData() {
