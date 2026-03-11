@@ -336,11 +336,17 @@ const msalConfig = {
   auth: {
     clientId:    CLIENT_ID,
     authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
-    redirectUri: window.location.href.split('?')[0],
+    redirectUri: 'https://udadmin2026.github.io/Sharepoint/y171/',
   },
-  cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false }
+  cache: {
+    cacheLocation: 'localStorage',      // persist across page reloads & iframe navigations
+    storeAuthStateInCookie: true,        // required for mobile browsers / Safari / iframe auth
+  }
 };
-const loginRequest = { scopes: [`https://jddredging.sharepoint.com/AllSites.Read`] };
+const loginRequest = {
+  scopes: ['https://jddredging.sharepoint.com/AllSites.Read'],
+  prompt: 'none',                        // attempt silent SSO — no UI unless forced
+};
 
 // ── HELPERS ───────────────────────────────────────────────
 function getCustomer(item) {
@@ -757,27 +763,40 @@ function showError(msg) {
 }
 
 // ── AUTH ──────────────────────────────────────────────────
+// Sign-in uses redirect (works in mobile/iframe, no popup needed)
 async function signIn() {
   try {
-    const result = await msalInstance.loginPopup(loginRequest);
-    accessToken = result.accessToken;
-    loadData();
+    await msalInstance.loginRedirect({ ...loginRequest, prompt: 'select_account' });
+    // page will redirect away — on return, init() handles the response
   } catch(e) {
-    showError(`Sign in failed: ${e.message}`);
+    showError('Sign in failed: ' + e.message);
   }
 }
 
+// Three-tier token acquisition:
+// 1. acquireTokenSilent  (cached token, no round-trip)
+// 2. ssoSilent           (use existing MS session cookie — key for SharePoint mobile)
+// 3. Return null         (fall through to sign-in button)
 async function getToken() {
+  // Tier 1: check cached accounts and try silent refresh
   const accounts = msalInstance.getAllAccounts();
-  if (!accounts.length) return null;
+  if (accounts.length > 0) {
+    try {
+      const r = await msalInstance.acquireTokenSilent({ ...loginRequest, prompt: undefined, account: accounts[0] });
+      return r.accessToken;
+    } catch(e) {
+      // silent refresh failed — fall through to SSO
+    }
+  }
+
+  // Tier 2: ssoSilent — leverages the user's existing Microsoft session
+  // This is the key path for SharePoint embedded on mobile (user already logged in to M365)
   try {
-    const r = await msalInstance.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
+    const r = await msalInstance.ssoSilent({ ...loginRequest, prompt: undefined });
     return r.accessToken;
   } catch(e) {
-    try {
-      const r = await msalInstance.acquireTokenPopup({ ...loginRequest, account: accounts[0] });
-      return r.accessToken;
-    } catch(e2) { return null; }
+    // No active session found — user must sign in interactively
+    return null;
   }
 }
 
@@ -973,7 +992,22 @@ function renderJobDetails(job, projectTitle) {
 async function init() {
   msalInstance = new msal.PublicClientApplication(msalConfig);
   await msalInstance.initialize();
-  try { await msalInstance.handleRedirectPromise(); } catch(e) {}
+
+  // Handle redirect response (fires when returning from loginRedirect)
+  try {
+    const redirectResult = await msalInstance.handleRedirectPromise();
+    if (redirectResult && redirectResult.accessToken) {
+      // Just returned from redirect login — go straight to data load
+      loadData();
+      return;
+    }
+  } catch(e) {
+    console.warn('[Y171] Redirect handling error:', e);
+  }
+
+  // Attempt fully silent load — no UI, no prompt
+  // On SharePoint mobile the user is already signed in to M365,
+  // so ssoSilent (called inside getToken) will succeed without any interaction.
   loadData();
 }
 
