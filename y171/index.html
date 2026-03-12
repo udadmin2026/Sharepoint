@@ -331,18 +331,31 @@ const REFRESH_MS = 2 * 60 * 1000;
 let timer = null;
 let activeProjectTitle = null;
 
-// ── MSAL CONFIG ───────────────────────────────────────────
-const msalConfig = {
-  auth: {
-    clientId:    CLIENT_ID,
-    authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
-    redirectUri: 'https://udadmin2026.github.io/Sharepoint/auth/',
-  },
-  cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
-};
-const TOKEN_SCOPE     = ['https://jddredging.sharepoint.com/AllSites.Read'];
-const TOKEN_CACHE_KEY = 'y171_sp_token';
+// ── TOKEN SETUP ───────────────────────────────────────────
+// Token is delivered by the auth page via URL hash (#sptoken=...).
+// We store it in sessionStorage (same-origin, never blocked by tracking prevention).
+// On subsequent loads we read from sessionStorage — no MSAL needed in the widget.
+const TOKEN_KEY  = 'ud_sp_token_y171';
+const TOKEN_SCOPE = ['https://jddredging.sharepoint.com/AllSites.Read'];
 let msalApp = null;
+
+// Check if auth page delivered a token in the URL hash right now
+(function consumeHashToken() {
+  try {
+    const hash = window.location.hash;
+    if (!hash.startsWith('#sptoken=')) return;
+    const payload = JSON.parse(decodeURIComponent(hash.slice('#sptoken='.length)));
+    if (payload.token && payload.expiry) {
+      sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token: payload.token, expiry: payload.expiry }));
+      // Clear the hash so the token isn't visible in the URL
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      // If auth page gave us a returnTo (the SP page), navigate top frame there
+      if (payload.returnTo) {
+        try { window.top.location.href = payload.returnTo; } catch(e) {}
+      }
+    }
+  } catch(e) { console.warn('[Y171] hash token parse failed:', e.message); }
+})();
 
 
 
@@ -817,25 +830,30 @@ function getAccountFromStorage() {
 }
 
 async function getToken() {
-  // ── Tier 1: Simple token key written by auth page ────────
-  // Auth page stores { token, expiry } under 'ud_sp_token' after every login.
-  // This works across InPrivate, mobile app, any browser — no MSAL needed here.
+  // ── Tier 1: sessionStorage (same-origin, never blocked) ──
   try {
-    const raw = localStorage.getItem('ud_sp_token');
+    const raw = sessionStorage.getItem(TOKEN_KEY);
     if (raw) {
       const { token, expiry } = JSON.parse(raw);
       if (token && expiry > Date.now() + 60000) {
-        statusMsg('Token from cache ✓');
+        statusMsg('Token OK ✓');
         return token;
       }
-      // Token expired — will refresh via MSAL below then re-store
-      statusMsg('Token expired, refreshing…');
+      statusMsg('Token expired — refreshing…');
+      sessionStorage.removeItem(TOKEN_KEY);
     }
   } catch(e) {}
 
-  // ── Tier 2: MSAL acquireTokenSilent ─────────────────────
-  // Refresh an expired token without user interaction
+  // ── Tier 2: MSAL silent refresh (expired token) ──────────
   try {
+    const msalConfig = {
+      auth: {
+        clientId:    CLIENT_ID,
+        authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
+        redirectUri: 'https://udadmin2026.github.io/Sharepoint/auth/',
+      },
+      cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
+    };
     if (!msalApp) {
       msalApp = new msal.PublicClientApplication(msalConfig);
       await msalApp.initialize();
@@ -846,31 +864,39 @@ async function getToken() {
       const raw = getAccountFromStorage();
       if (raw) { try { msalApp.setActiveAccount(raw); accounts = [raw]; } catch(e) {} }
     }
-    statusMsg('Auth: ' + accounts.length + ' MSAL account(s)…');
+    statusMsg('Auth: ' + accounts.length + ' account(s)…');
     for (const account of accounts) {
       try {
         const r = await msalApp.acquireTokenSilent({ scopes: TOKEN_SCOPE, account });
-        // Re-store the refreshed token
-        localStorage.setItem('ud_sp_token', JSON.stringify({
-          token: r.accessToken,
-          expiry: r.expiresOn ? new Date(r.expiresOn).getTime() : Date.now() + 3600000
-        }));
+        const expiry = r.expiresOn ? new Date(r.expiresOn).getTime() : Date.now() + 3600000;
+        sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token: r.accessToken, expiry }));
         statusMsg('Token refreshed ✓');
         return r.accessToken;
-      } catch(e) { console.warn('[Y171] acquireTokenSilent:', e.message); }
+      } catch(e) { console.warn('[Y171] silent refresh failed:', e.message); }
     }
-  } catch(e) { console.warn('[Y171] MSAL init failed:', e.message); }
+  } catch(e) { console.warn('[Y171] MSAL failed:', e.message); }
 
-  // ── Tier 3: Need interactive sign-in ────────────────────
-  const loopGuard = sessionStorage.getItem('y171_auth_attempted');
+  // ── Tier 3: Need interactive sign-in ─────────────────────
+  const loopGuard = sessionStorage.getItem('y171_auth_loop');
   if (loopGuard) {
-    sessionStorage.removeItem('y171_auth_attempted');
-    showError('Sign-in completed but token not found. Please refresh the page.');
+    sessionStorage.removeItem('y171_auth_loop');
+    showError('Sign-in completed but token not received. Please refresh the page.');
     return null;
   }
-  statusMsg('No session — sign in required…');
-  sessionStorage.setItem('y171_auth_attempted', '1');
-  setTimeout(showSignIn, 800);
+  sessionStorage.setItem('y171_auth_loop', '1');
+  statusMsg('Sign in required…');
+
+  // Build auth URL — pass current widget URL and SP page as returnTo
+  const widgetUrl  = 'https://udadmin2026.github.io/Sharepoint/y171/';
+  const spPage     = 'https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx';
+  const authUrl    = 'https://udadmin2026.github.io/Sharepoint/auth/'
+    + '?widget='   + encodeURIComponent(widgetUrl)
+    + '&returnTo=' + encodeURIComponent(spPage);
+
+  setTimeout(() => {
+    try { window.top.location.href = authUrl; }
+    catch(e) { window.open(authUrl, '_blank'); statusMsg('Sign-in tab opened — return here after signing in.'); }
+  }, 800);
   return null;
 }
 
