@@ -462,7 +462,7 @@ const PROD = {
   buckets:      'Yarder_x0020_Buckets',
   cycles:       'Yarder_x0020_Cycles',  // confirmed via field probe
   yarderHrs:    'Yarder_x0020__x0020_Hrs_x0020_', // Yarder (Hrs) — confirmed via field probe
-  maintHrs:     'Maintenance_x0020_and_x0020_Dow', // Maintenance and Down (Hrs) — probe pending
+  maintHrs:     '', // populated at runtime via field probe
   yardsPerBkt:  'YardsPerBucket_x0028_Number_x002',
   tonsPerYard:  'TonsPerYard_x0028_Number_x0029_',
   actualTons:   'AcutalTons',           // pre-calculated fallback
@@ -1070,7 +1070,7 @@ async function fetchProduction(token, projectTitle) {
   const cutoffISO = cutoff.toISOString();
 
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.cycles},${PROD.yarderHrs},${PROD.maintHrs},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`
+            + '?$select=Id,' + PROD.date + ',' + PROD.buckets + ',' + PROD.cycles + ',' + PROD.yarderHrs + (PROD.maintHrs ? ',' + PROD.maintHrs : '') + ',' + PROD.yardsPerBkt + ',' + PROD.tonsPerYard + ',' + PROD.actualTons + ',' + PROD.jobName + ',' + PROD.project + '/Title'
             + `&$expand=${PROD.project}`
             + `&$filter=${PROD.date} ge datetime'${cutoffISO}'`
             + `&$top=2000`
@@ -1330,6 +1330,30 @@ async function getToken() {
   return null;
 }
 
+async function probeMaintField(token) {
+  try {
+    const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(PROD_LIST) + "')/fields"
+      + "?$select=Title,InternalName&$filter=Hidden eq false and ReadOnlyField eq false&$top=200";
+    const r = await fetchSP(url, token, 10000);
+    if (!r.ok) return;
+    const fields = (await r.json())?.d?.results ?? [];
+    // Log all field internal names to console for debugging
+    const hrFields = fields.filter(function(f) {
+      const n = f.InternalName.toLowerCase();
+      return n.includes('hr') || n.includes('hour') || n.includes('maint') || n.includes('down');
+    });
+    console.log('[Y171] Hour/maint fields found:');
+    hrFields.forEach(function(f) { console.log('[Y171]   ' + f.InternalName + ' (' + f.Title + ')'); });
+    // Auto-detect maint field
+    const mf = hrFields.find(function(f) {
+      const n = f.InternalName.toLowerCase();
+      return n.includes('maint') || n.includes('down');
+    });
+    if (mf) { PROD.maintHrs = mf.InternalName; console.log('[Y171] maintHrs set to:', PROD.maintHrs); }
+    else { console.warn('[Y171] Could not find maint/down hours field'); }
+  } catch(e) { console.warn('[Y171] probeMaintField error:', e.message); }
+}
+
 async function loadData() {
   document.getElementById('refreshBtn').classList.add('loading');
   document.getElementById('refreshBtn').textContent = '↻ Loading…';
@@ -1369,6 +1393,8 @@ async function loadData() {
 
       try {
         statusMsg('Loading production data…');
+        // Probe for maintenance/hours field names if not yet found
+        if (!PROD.maintHrs) await probeMaintField(token);
         // First get all recent production for this machine's job
         const allProd = await fetchAllProduction(token);
 
@@ -1416,8 +1442,8 @@ async function loadData() {
 
 // Fetch ALL production entries with pagination (no date filter — captures full project history)
 async function fetchAllProduction(token) {
-  // maintHrs field name is a probe guess — will appear as 0 if wrong; check console
-  const baseSelect = `Id,${PROD.date},${PROD.buckets},${PROD.cycles},${PROD.yarderHrs},${PROD.maintHrs},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`;
+  const maintSel = PROD.maintHrs ? ',' + PROD.maintHrs : '';
+  const baseSelect = 'Id,' + PROD.date + ',' + PROD.buckets + ',' + PROD.cycles + ',' + PROD.yarderHrs + maintSel + ',' + PROD.yardsPerBkt + ',' + PROD.tonsPerYard + ',' + PROD.actualTons + ',' + PROD.jobName + ',' + PROD.project + '/Title';
   const baseExpand = PROD.project;
   let url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
           + `?$select=${baseSelect}&$expand=${baseExpand}&$top=5000`;
