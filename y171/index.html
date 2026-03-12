@@ -846,15 +846,28 @@ function showSignInButton() {
 }
 
 function signInPopup() {
-  const authUrl = 'https://udadmin2026.github.io/Sharepoint/auth/?popup=1';
-  const popup = window.open(authUrl, 'ud_auth',
-    'width=480,height=640,left=' + (screen.width/2 - 240) + ',top=' + (screen.height/2 - 320));
-  if (!popup) {
-    // Popups blocked — fall back to top navigation
-    statusMsg('Popup blocked — redirecting…');
-    const returnTo = encodeURIComponent('https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx');
-    try { window.top.location.href = 'https://udadmin2026.github.io/Sharepoint/auth/?returnTo=' + returnTo; }
-    catch(e) {}
+  const returnTo  = encodeURIComponent('https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx');
+  const authBase  = 'https://udadmin2026.github.io/Sharepoint/auth/';
+
+  // Mobile detection — SP mobile app blocks window.open entirely
+  const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)
+    || navigator.maxTouchPoints > 2;
+
+  if (!isMobile) {
+    // Desktop: try popup first
+    const popup = window.open(
+      authBase + '?popup=1',
+      'ud_auth',
+      'width=480,height=640,left=' + Math.round(screen.width/2 - 240) + ',top=' + Math.round(screen.height/2 - 320)
+    );
+    if (popup) return; // popup opened successfully
+  }
+
+  // Mobile or popup blocked — navigate top frame to auth, which will redirect back to SP
+  try {
+    window.top.location.href = authBase + '?returnTo=' + returnTo;
+  } catch(e) {
+    window.open(authBase + '?returnTo=' + returnTo, '_blank');
   }
 }
 
@@ -863,6 +876,21 @@ async function getToken() {
   if (_token && _expiry > Date.now() + 60000) {
     return _token;
   }
+
+  // localStorage fallback — written by auth page after mobile redirect flow
+  try {
+    const raw = localStorage.getItem('ud_sp_token_y171');
+    if (raw) {
+      const { token, expiry } = JSON.parse(raw);
+      if (token && expiry > Date.now() + 60000) {
+        _token  = token;
+        _expiry = expiry;
+        statusMsg('Token from cache ✓');
+        return _token;
+      }
+      localStorage.removeItem('ud_sp_token_y171'); // expired
+    }
+  } catch(e) {}
 
   // Try MSAL silent refresh if we have a cached account (regular browser after first sign-in)
   try {
