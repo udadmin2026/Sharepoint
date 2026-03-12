@@ -563,14 +563,20 @@ const WO = {
   urgency:      'Urgency',
   details:      'RequestDetails',
   assignedTo:   'AssignedTo',          // MultiChoice
+  team:         'Team',                // MultiChoice
   dateReq:      'DateOfRequet',
   startDate:    'StartDate',
   dateComplete: 'DateCompleted',
+  hardEndDate:  'HardEndDate',
   estHours:     'WorkOrderEstimatedHours',
   hoursTotal:   'HoursTotal',
   invoiceTotal: 'InvoiceTotal',
   woId:         'WOID',
   woTypecat:    'WOTypeCategory',
+  equipType:    'EquipType',
+  // Author/Created come from SharePoint system fields
+  // Author is expanded via $expand=Author/Title
+  // Created is a system DateTime field
 };
 // Work Order Detail columns
 const WOD = {
@@ -1043,12 +1049,13 @@ let _woDetails = {};     // MasterID → [detail rows]
 let _woSelected = null;  // currently selected WO Id
 
 async function fetchWorkOrders(token) {
-  const select = 'Id,' + [WO.title,WO.customer,WO.status,WO.priority,WO.urgency,
-    WO.details,WO.assignedTo,WO.dateReq,WO.startDate,WO.dateComplete,
-    WO.estHours,WO.hoursTotal,WO.invoiceTotal,WO.woId,WO.woTypecat].join(',');
+  const select = 'Id,Created,' + [WO.title,WO.customer,WO.status,WO.priority,WO.urgency,
+    WO.details,WO.assignedTo,WO.team,WO.dateReq,WO.startDate,WO.dateComplete,
+    WO.hardEndDate,WO.estHours,WO.hoursTotal,WO.invoiceTotal,WO.woId,
+    WO.woTypecat,WO.equipType].join(',');
   const filter = encodeURIComponent("Customer eq '" + MACHINE + "'");
   const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_LIST) + "')/items"
-    + "?$select=" + select + "&$filter=" + filter + "&$top=500&$orderby=Id desc";
+    + "?$select=" + select + "&$expand=Author/Id,Author/Title&$filter=" + filter + "&$top=500&$orderby=Id desc";
   const r = await fetchSP(url, token, 20000);
   if (!r.ok) { const e = await r.text().catch(function(){return'';}); throw new Error('WO fetch HTTP ' + r.status + ' — ' + e.slice(0,200)); }
   return (await r.json())?.d?.results ?? [];
@@ -1060,7 +1067,7 @@ async function fetchWODetails(token) {
     WOD.materialTotal,WOD.estCost].join(',');
   // Get details for all WOs in one shot — filter to WO IDs we have
   const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_DET_LIST) + "')/items"
-    + "?$select=" + select + "&$top=2000&$orderby=" + WOD.masterId + " asc";
+    + "?$select=" + select + "&$expand=Author/Title&$top=2000&$orderby=" + WOD.masterId + " asc";
   const r = await fetchSP(url, token, 20000);
   if (!r.ok) { console.warn('[Y171] WOD fetch HTTP', r.status); return []; }
   return (await r.json())?.d?.results ?? [];
@@ -1074,6 +1081,13 @@ function priorityColor(p) {
 function fmtDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'});
+}
+
+function fmtDatetime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'})
+    + ' ' + d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', hour12:true});
 }
 
 function fmtCurrency(v) {
@@ -1099,8 +1113,10 @@ function renderWOGroup(statusKey, color, wos, groupId, isOpen) {
     const priClr   = priorityColor(pri);
     const typecat  = wo[WO.woTypecat] || '';
     const assigned = (function(){ const a=wo[WO.assignedTo]; return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
+    const team     = (function(){ const a=wo[WO.team];       return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
     const dateStart = fmtDate(wo[WO.startDate]);
     const dateReq  = fmtDate(wo[WO.dateReq]);
+    const hardEnd  = wo[WO.hardEndDate] ? fmtDate(wo[WO.hardEndDate]) : '';
     const estHrs   = parseFloat(wo[WO.estHours]) || 0;
     const actHrs   = parseFloat(wo[WO.hoursTotal]) || 0;
     const detailCount = (_woDetails[wo.Id] || []).length;
@@ -1115,7 +1131,8 @@ function renderWOGroup(statusKey, color, wos, groupId, isOpen) {
     h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px;align-items:center">';
     if (pri)      h += '<span class="wo-priority-pill" style="background:' + priClr + ';color:' + (pri==='Low'||pri==='Normal'?'var(--muted)':'#fff') + '">' + pri + '</span>';
     if (urgency)  h += '<span class="wo-priority-pill" style="background:rgba(255,255,255,0.08);color:var(--muted)">' + urgency + '</span>';
-    if (assigned) h += '<span style="font-size:10px;color:var(--muted)">' + assigned + '</span>';
+    const pplStr = [assigned, team].filter(Boolean).join(' / ');
+    if (pplStr)   h += '<span style="font-size:10px;color:var(--muted)">' + pplStr + '</span>';
     h += '</div>';
     h += '</div>';
     h += '<div class="wo-row-meta" style="white-space:nowrap">';
@@ -1123,6 +1140,7 @@ function renderWOGroup(statusKey, color, wos, groupId, isOpen) {
     if (showDate) h += '<div>' + showDate + '</div>';
     if (estHrs > 0) h += '<div>' + estHrs + 'h est</div>';
     if (actHrs > 0) h += '<div style="color:var(--green)">' + actHrs.toFixed(1) + 'h actual</div>';
+    if (hardEnd) h += '<div style="color:#FF8C42;font-size:9px">Due ' + hardEnd + '</div>';
     if (detailCount > 0) h += '<div style="color:var(--muted)">' + detailCount + ' entr' + (detailCount===1?'y':'ies') + '</div>';
     h += '</div>';
     h += '</div>';
@@ -1186,32 +1204,40 @@ function renderWODetailPanel(wo) {
   const details = _woDetails[wo.Id] || [];
   let h = '<div class="wo-detail-panel">';
 
-  // Header with close button
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
-  h += '<div>';
+  // Header: title + WO ID + close button
+  h += '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;gap:8px">';
+  h += '<div style="min-width:0">';
   h += '<div class="wo-detail-title" style="margin:0">' + (wo[WO.title] || '') + '</div>';
-  const woIdStr = wo[WO.woId] ? '<span style="font-size:10px;color:var(--muted);margin-left:8px">' + wo[WO.woId] + '</span>' : '';
-  h += woIdStr;
+  const woIdStr = [wo[WO.woId], wo[WO.equipType]].filter(Boolean).join(' \u00b7 ');
+  if (woIdStr) h += '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + woIdStr + '</div>';
   h += '</div>';
-  h += '<button onclick="event.stopPropagation();selectWO(' + wo.Id + ')" style="background:var(--card-border);border:none;color:var(--muted);border-radius:6px;width:22px;height:22px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0" title="Close">\u2715</button>';
+  h += '<button onclick="event.stopPropagation();selectWO(' + wo.Id + ')" style="background:var(--card-border);border:none;color:var(--muted);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;flex-shrink:0" title="Close">\u2715 Close</button>';
   h += '</div>';
 
-  // Key fields — 3-column grid
+  // Field grid — 3 columns
+  const assignedTo  = (function(){ const a=wo[WO.assignedTo]; return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
+  const team        = (function(){ const a=wo[WO.team];       return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
+  const createdBy   = (wo['Author'] && wo['Author']['Title']) ? wo['Author']['Title'] : '';
+  const createdDate = wo['Created'] ? fmtDatetime(wo['Created']) : '';
+  const hardEnd     = fmtDate(wo[WO.hardEndDate]);
+
   h += '<div class="wo-detail-grid" style="grid-template-columns:1fr 1fr 1fr">';
-  const assigned = (function(){ const a=wo[WO.assignedTo]; return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
   const fields = [
-    ['WO Type',       wo[WO.woTypecat]],
-    ['Priority',      wo[WO.priority]],
-    ['Urgency',       wo[WO.urgency]],
-    ['Requested',     fmtDate(wo[WO.dateReq])],
-    ['Start Date',    fmtDate(wo[WO.startDate])],
-    ['Est. Complete', fmtDate(wo[WO.estHours] ? null : null)],  // placeholder
-    ['Est. Hours',    wo[WO.estHours] ? String(wo[WO.estHours]) + ' hrs' : null],
-    ['Actual Hours',  wo[WO.hoursTotal] ? parseFloat(wo[WO.hoursTotal]).toFixed(1) + ' hrs' : null],
-    ['Completed',     fmtDate(wo[WO.dateComplete])],
-    ['Assigned To',   assigned || null],
-    ['Materials',     wo[WO.invoiceTotal] ? fmtCurrency(wo[WO.invoiceTotal]) : null],
-    ['Invoice Total', wo[WO.invoiceTotal] ? fmtCurrency(wo[WO.invoiceTotal]) : null],
+    ['WO Type',      wo[WO.woTypecat]],
+    ['Equip Type',   wo[WO.equipType]],
+    ['Priority',     wo[WO.priority]],
+    ['Urgency',      wo[WO.urgency]],
+    ['Assigned To',  assignedTo || null],
+    ['Team',         team || null],
+    ['Requested',    fmtDate(wo[WO.dateReq])],
+    ['Start Date',   fmtDate(wo[WO.startDate])],
+    ['Hard End',     hardEnd !== '\u2014' ? hardEnd : null],
+    ['Est. Hours',   wo[WO.estHours] ? wo[WO.estHours] + ' hrs' : null],
+    ['Actual Hours', wo[WO.hoursTotal] ? parseFloat(wo[WO.hoursTotal]).toFixed(1) + ' hrs' : null],
+    ['Completed',    fmtDate(wo[WO.dateComplete])],
+    ['Invoice Total',wo[WO.invoiceTotal] ? fmtCurrency(wo[WO.invoiceTotal]) : null],
+    ['Created By',   createdBy || null],
+    ['Created',      createdDate || null],
   ];
   fields.forEach(function(f) {
     if (!f[1] || f[1] === '\u2014') return;
@@ -1225,37 +1251,37 @@ function renderWODetailPanel(wo) {
   // Request notes
   const notes = (wo[WO.details] || '').trim();
   if (notes) {
-    h += '<div class="wo-detail-label" style="margin:8px 0 4px">Request Details</div>';
+    h += '<div class="wo-detail-label" style="margin:10px 0 4px">Request Details</div>';
     h += '<div class="wo-detail-notes">' + notes.replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
   }
 
   // Work detail entries
-  h += '<div class="wo-detail-section-hdr">Work Detail Entries (' + details.length + ')</div>';
+  h += '<div class="wo-detail-section-hdr" style="margin-top:12px">Work Detail Entries (' + details.length + ')</div>';
   if (details.length > 0) {
-    h += '<div class="wo-detail-row-hdr"><div>Type of Service</div><div>Time / Date</div><div>Comment</div><div style="text-align:right">Cost</div></div>';
+    h += '<div class="wo-detail-row-hdr"><div>Type / Rate</div><div>Time / Date</div><div>Comment</div><div style="text-align:right">Cost</div></div>';
     details.forEach(function(d) {
-      const svc      = d[WOD.typeOfSvc] || '\u2014';
-      const spent    = d[WOD.timeSpent] || '';
-      const dtEntered = fmtDate(d[WOD.timeStart] || d['DateTimeEntered']);
-      const timeStr  = [spent, dtEntered].filter(function(x){return x && x !== '\u2014';}).join(' \u00b7 ');
-      const comment  = (d[WOD.comments] || '').trim();
-      const hTotal   = parseFloat(d[WOD.hourlyTotal]) || 0;
-      const mTotal   = parseFloat(d[WOD.materialTotal]) || 0;
-      const cost     = hTotal + mTotal;
-      const hRate    = parseFloat(d[WOD.hourlyRate]) || 0;
+      const svc        = d[WOD.typeOfSvc] || '\u2014';
+      const spent      = d[WOD.timeSpent] || '';
+      const dtStart    = fmtDate(d[WOD.timeStart]);
+      const timeStr    = [spent, dtStart !== '\u2014' ? dtStart : ''].filter(Boolean).join(' \u00b7 ');
+      const comment    = (d[WOD.comments] || '').trim();
+      const hTotal     = parseFloat(d[WOD.hourlyTotal]) || 0;
+      const mTotal     = parseFloat(d[WOD.materialTotal]) || 0;
+      const cost       = hTotal + mTotal;
+      const hRate      = parseFloat(d[WOD.hourlyRate]) || 0;
+      const detailBy   = (d['Author'] && d['Author']['Title']) ? d['Author']['Title'] : '';
       h += '<div class="wo-detail-row">';
-      h += '<div>' + svc + (hRate > 0 ? '<br><span style="font-size:9px;color:var(--muted)">$' + hRate + '/hr</span>' : '') + '</div>';
+      h += '<div>' + svc + (hRate > 0 ? '<br><span style="font-size:9px;color:var(--muted)">$' + hRate + '/hr</span>' : '') + (detailBy ? '<br><span style="font-size:9px;color:var(--muted)">' + detailBy + '</span>' : '') + '</div>';
       h += '<div>' + (timeStr || '\u2014') + '</div>';
       h += '<div class="wo-detail-comment">' + (comment || '\u2014') + '</div>';
       h += '<div style="text-align:right">' + (cost > 0 ? fmtCurrency(cost) : '\u2014') + '</div>';
       h += '</div>';
     });
-    // Totals row
     const totalHrs = details.reduce(function(s,d){ return s + (parseFloat(d[WOD.hourlyTotal])||0); }, 0);
     const totalMat = details.reduce(function(s,d){ return s + (parseFloat(d[WOD.materialTotal])||0); }, 0);
     const grandTotal = totalHrs + totalMat;
     if (grandTotal > 0) {
-      h += '<div style="display:flex;justify-content:flex-end;padding:8px 8px 2px;font-size:11px;font-weight:700;color:var(--text);gap:16px">';
+      h += '<div style="display:flex;justify-content:flex-end;padding:8px 8px 2px;font-size:11px;font-weight:700;color:var(--text);gap:16px;border-top:1px solid var(--card-border);margin-top:4px">';
       if (totalHrs > 0) h += '<span>Labor: ' + fmtCurrency(totalHrs) + '</span>';
       if (totalMat > 0) h += '<span>Materials: ' + fmtCurrency(totalMat) + '</span>';
       h += '<span style="color:var(--green)">Total: ' + fmtCurrency(grandTotal) + '</span>';
@@ -1270,8 +1296,38 @@ function renderWODetailPanel(wo) {
 }
 
 function selectWO(id) {
-  _woSelected = (_woSelected === id) ? null : id; // toggle
-  renderWorkOrders();
+  const wasSelected = (_woSelected === id);
+  _woSelected = wasSelected ? null : id;
+
+  // Remove any existing open detail panel without re-rendering everything
+  const existing = document.querySelectorAll('.wo-detail-panel');
+  existing.forEach(function(el) { el.remove(); });
+
+  // Remove selected highlight from all rows
+  document.querySelectorAll('.wo-row.selected').forEach(function(el) {
+    el.classList.remove('selected');
+  });
+
+  if (!wasSelected) {
+    // Find the clicked row by its onclick attribute and inject detail below it
+    const wo = _woData.find(function(w) { return w.Id === id; });
+    if (!wo) return;
+    const rows = document.querySelectorAll('.wo-row');
+    for (let i = 0; i < rows.length; i++) {
+      const onclickAttr = rows[i].getAttribute('onclick') || '';
+      if (onclickAttr.indexOf('selectWO(' + id + ')') !== -1) {
+        rows[i].classList.add('selected');
+        const panel = document.createElement('div');
+        panel.innerHTML = renderWODetailPanel(wo);
+        rows[i].parentNode.insertBefore(panel.firstChild, rows[i].nextSibling);
+        // Scroll into view
+        setTimeout(function() {
+          panel.firstChild && panel.firstChild.scrollIntoView && panel.firstChild.scrollIntoView({behavior:'smooth', block:'nearest'});
+        }, 50);
+        break;
+      }
+    }
+  }
 }
 
 function toggleWOGroup(groupId) {
