@@ -825,7 +825,6 @@ function getAccountFromStorage() {
 }
 
 function showSignInButton() {
-  // Show a sign-in button in all cards and production section
   const html = `<div style="text-align:center;padding:24px 16px">
     <button onclick="signInPopup()" style="background:#DA0039;color:#fff;border:none;
       border-radius:8px;font-size:13px;font-weight:700;padding:10px 24px;cursor:pointer;
@@ -833,10 +832,16 @@ function showSignInButton() {
       🔐 Sign in to load live data
     </button>
   </div>`;
+  // Update card body divs
   ['act-body','mob-body','prod-body','sidebar-body'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = html;
   });
+  // Also update card-state divs which show during loading
+  document.querySelectorAll('.card-state').forEach(el => { el.innerHTML = html; });
+  // Reset refresh button
+  const btn = document.getElementById('refreshBtn');
+  if (btn) { btn.classList.remove('loading'); btn.textContent = '↻ Refresh'; }
   statusMsg('Sign in required');
 }
 
@@ -905,7 +910,12 @@ async function loadData() {
 
   let token;
   try { token = await getToken(); } catch(e) { showError(e.message); return; }
-  if (!token) return; // getToken handles sign-in redirect, just stop here
+  if (!token) {
+    // getToken already called showSignInButton() — just stop loading
+    const btn = document.getElementById('refreshBtn');
+    if (btn) { btn.classList.remove('loading'); btn.textContent = '↻ Refresh'; }
+    return;
+  }
 
   try {
     // Step 1: Load project cards
