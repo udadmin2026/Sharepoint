@@ -56,27 +56,29 @@ const cfg = {
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
-// After getting a token, store it in sessionStorage then navigate to SP page.
-// Auth page is on github.io (top-level). Widget iframe is also github.io inside SP.
-// Same origin + same tab = shared sessionStorage. No tracking prevention applies
-// because the widget is reading its OWN origin's sessionStorage (not cross-origin).
-function deliverToken(accessToken, expiresOn) {
-  const expiry = expiresOn
-    ? new Date(expiresOn).getTime()
-    : Date.now() + 3600000;
+// Detect if we were opened as a popup by the widget
+const isPopup = params.get('popup') === '1' || (window.opener && window.opener !== window);
 
-  // Store token in sessionStorage — widget iframe will read this same key
-  const TOKEN_KEY = 'ud_sp_token_y171';
-  sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token: accessToken, expiry: expiry }));
-  console.log('[Auth] Token stored in sessionStorage, navigating to SP page');
+function deliverToken(accessToken, expiresOn) {
+  const expiry = expiresOn ? new Date(expiresOn).getTime() : Date.now() + 3600000;
 
   document.getElementById('spinner').style.display = 'none';
-  document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in! Returning to SharePoint…';
+  document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in!';
 
   localStorage.removeItem('ud_auth_returnTo');
   localStorage.removeItem('ud_auth_widget');
 
-  setTimeout(() => { window.location.href = returnTo; }, 800);
+  if (isPopup && window.opener) {
+    // Popup mode — postMessage token back to the widget iframe, then close
+    window.opener.postMessage(
+      { type: 'ud_token', token: accessToken, expiry: expiry },
+      'https://udadmin2026.github.io'
+    );
+    setTimeout(() => window.close(), 500);
+  } else {
+    // Top-frame redirect mode — navigate back to SharePoint
+    setTimeout(() => { window.location.href = returnTo; }, 800);
+  }
 }
 
 async function run() {
