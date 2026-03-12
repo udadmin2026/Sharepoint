@@ -968,11 +968,9 @@ function renderStats(stats, jobName, contractedTons, projectItem) {
     const v    = tonVals[i];
     const hrs  = hrsVals[i];
     const mnt  = maintVals[i];
-    // Production % = yarder hrs > 0 ? (production hrs / yarder hrs) * 100
-    // We don't have separate "production hrs" so use: if yarder hrs > 0, show it
-    // Efficiency: production time is yarder hrs minus maint hrs
-    const prodHrs = (hrs - mnt) > 0 ? (hrs - mnt) : (hrs > 0 ? hrs : 0);
-    const pct = (hrs > 0 && prodHrs >= 0) ? Math.round((prodHrs / hrs) * 100) : null;
+    // Production % = Yarder Hrs / (Yarder Hrs + Maint & Down Hrs)
+    const totalHrs = hrs + mnt;
+    const pct = totalHrs > 0 ? Math.round((hrs / totalHrs) * 100) : null;
     const pctClass = pct === null ? '' : pct >= 75 ? 'good' : 'warn';
 
     let html = '<div class="stat-tile">';
