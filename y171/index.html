@@ -273,7 +273,7 @@
 <div id="debugBar" style="display:none;margin-bottom:8px;background:rgba(218,0,57,0.1);border:1px solid rgba(218,0,57,0.3);border-radius:8px;padding:10px 14px;font-size:11px;font-family:monospace;color:#ff8fa3;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;"></div>
 <div class="footer">
   <div>Source: <strong>Project List</strong> · Machine = Y171 · UnitedDredging</div>
-  <div><button onclick="debugDump()" style="background:none;border:1px solid rgba(245,246,250,0.2);color:rgba(245,246,250,0.4);font-size:10px;padding:2px 8px;border-radius:4px;cursor:pointer;">debug</button></div>
+
   <div id="statusLine"></div>
 </div>
 
@@ -784,18 +784,22 @@ function showSignIn() {
   catch(e) { window.open(authUrl, '_blank'); statusMsg('Sign-in tab opened — return here after signing in.'); }
 }
 
-// Read account keys directly from localStorage — more reliable than getAllAccounts()
-// which can miss accounts if MSAL instance config doesn't exactly match
+// Read account directly from MSAL's account.keys index in localStorage
 function getAccountFromStorage() {
+  try {
+    const accountKeys = JSON.parse(localStorage.getItem('msal.account.keys.' + CLIENT_ID) || '[]');
+    for (const key of accountKeys) {
+      const val = JSON.parse(localStorage.getItem(key) || 'null');
+      if (val && val.localAccountId) return val;
+    }
+  } catch(e) {}
+  // Fallback: scan all keys for account objects
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (!key || !key.includes(CLIENT_ID)) continue;
+    if (!key) continue;
     try {
       const val = JSON.parse(localStorage.getItem(key));
-      // Account objects have authorityType and localAccountId
-      if (val && val.authorityType && val.localAccountId && val.username) {
-        return val;
-      }
+      if (val && val.authorityType && val.localAccountId && val.homeAccountId) return val;
     } catch(e) {}
   }
   return null;
