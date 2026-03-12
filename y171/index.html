@@ -347,12 +347,9 @@ let msalApp = null;
     const payload = JSON.parse(decodeURIComponent(hash.slice('#sptoken='.length)));
     if (payload.token && payload.expiry) {
       sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token: payload.token, expiry: payload.expiry }));
-      // Clear the hash so the token isn't visible in the URL
       history.replaceState(null, '', window.location.pathname + window.location.search);
-      // If auth page gave us a returnTo (the SP page), navigate top frame there
-      if (payload.returnTo) {
-        try { window.top.location.href = payload.returnTo; } catch(e) {}
-      }
+      console.log('[Y171] Token received via hash and stored in sessionStorage');
+      // Do NOT navigate anywhere — auth page handles returnTo itself
     }
   } catch(e) { console.warn('[Y171] hash token parse failed:', e.message); }
 })();
