@@ -332,27 +332,25 @@ let timer = null;
 let activeProjectTitle = null;
 
 // ── TOKEN SETUP ───────────────────────────────────────────
-// Token is delivered by the auth page via URL hash (#sptoken=...).
-// We store it in sessionStorage (same-origin, never blocked by tracking prevention).
-// On subsequent loads we read from sessionStorage — no MSAL needed in the widget.
-const TOKEN_KEY  = 'ud_sp_token_y171';
+// Token is delivered via postMessage from a popup window running the auth page.
+// Popup is same-origin (github.io) and can postMessage directly to this iframe.
+// No localStorage, no sessionStorage sharing needed.
 const TOKEN_SCOPE = ['https://jddredging.sharepoint.com/AllSites.Read'];
-let msalApp = null;
+let msalApp  = null;
+let _token   = null;  // in-memory token for this page session
+let _expiry  = 0;
 
-// Check if auth page delivered a token in the URL hash right now
-(function consumeHashToken() {
-  try {
-    const hash = window.location.hash;
-    if (!hash.startsWith('#sptoken=')) return;
-    const payload = JSON.parse(decodeURIComponent(hash.slice('#sptoken='.length)));
-    if (payload.token && payload.expiry) {
-      sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token: payload.token, expiry: payload.expiry }));
-      history.replaceState(null, '', window.location.pathname + window.location.search);
-      console.log('[Y171] Token received via hash and stored in sessionStorage');
-      // Do NOT navigate anywhere — auth page handles returnTo itself
-    }
-  } catch(e) { console.warn('[Y171] hash token parse failed:', e.message); }
-})();
+// Listen for token posted from the auth popup
+window.addEventListener('message', function(e) {
+  if (e.origin !== 'https://udadmin2026.github.io') return;
+  if (e.data && e.data.type === 'ud_token' && e.data.token) {
+    _token  = e.data.token;
+    _expiry = e.data.expiry || (Date.now() + 3600000);
+    console.log('[Y171] Token received via postMessage ✓');
+    // Trigger data load now that we have a token
+    loadData();
+  }
+});
 
 
 
@@ -826,22 +824,42 @@ function getAccountFromStorage() {
   return null;
 }
 
-async function getToken() {
-  // ── Tier 1: sessionStorage (same-origin, never blocked) ──
-  try {
-    const raw = sessionStorage.getItem(TOKEN_KEY);
-    if (raw) {
-      const { token, expiry } = JSON.parse(raw);
-      if (token && expiry > Date.now() + 60000) {
-        statusMsg('Token OK ✓');
-        return token;
-      }
-      statusMsg('Token expired — refreshing…');
-      sessionStorage.removeItem(TOKEN_KEY);
-    }
-  } catch(e) {}
+function showSignInButton() {
+  // Show a sign-in button in all cards and production section
+  const html = `<div style="text-align:center;padding:24px 16px">
+    <button onclick="signInPopup()" style="background:#DA0039;color:#fff;border:none;
+      border-radius:8px;font-size:13px;font-weight:700;padding:10px 24px;cursor:pointer;
+      display:inline-flex;align-items:center;gap:8px">
+      🔐 Sign in to load live data
+    </button>
+  </div>`;
+  ['act-body','mob-body','prod-body','sidebar-body'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  });
+  statusMsg('Sign in required');
+}
 
-  // ── Tier 2: MSAL silent refresh (expired token) ──────────
+function signInPopup() {
+  const authUrl = 'https://udadmin2026.github.io/Sharepoint/auth/?popup=1';
+  const popup = window.open(authUrl, 'ud_auth',
+    'width=480,height=640,left=' + (screen.width/2 - 240) + ',top=' + (screen.height/2 - 320));
+  if (!popup) {
+    // Popups blocked — fall back to top navigation
+    statusMsg('Popup blocked — redirecting…');
+    const returnTo = encodeURIComponent('https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx');
+    try { window.top.location.href = 'https://udadmin2026.github.io/Sharepoint/auth/?returnTo=' + returnTo; }
+    catch(e) {}
+  }
+}
+
+async function getToken() {
+  // In-memory token (survives auto-refresh within same page load)
+  if (_token && _expiry > Date.now() + 60000) {
+    return _token;
+  }
+
+  // Try MSAL silent refresh if we have a cached account (regular browser after first sign-in)
   try {
     const msalConfig = {
       auth: {
@@ -861,30 +879,23 @@ async function getToken() {
       const raw = getAccountFromStorage();
       if (raw) { try { msalApp.setActiveAccount(raw); accounts = [raw]; } catch(e) {} }
     }
-    statusMsg('Auth: ' + accounts.length + ' account(s)…');
-    for (const account of accounts) {
-      try {
-        const r = await msalApp.acquireTokenSilent({ scopes: TOKEN_SCOPE, account });
-        const expiry = r.expiresOn ? new Date(r.expiresOn).getTime() : Date.now() + 3600000;
-        sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token: r.accessToken, expiry }));
-        statusMsg('Token refreshed ✓');
-        return r.accessToken;
-      } catch(e) { console.warn('[Y171] silent refresh failed:', e.message); }
+    if (accounts.length > 0) {
+      statusMsg('Auth: refreshing token…');
+      for (const account of accounts) {
+        try {
+          const r = await msalApp.acquireTokenSilent({ scopes: TOKEN_SCOPE, account });
+          _token  = r.accessToken;
+          _expiry = r.expiresOn ? new Date(r.expiresOn).getTime() : Date.now() + 3600000;
+          statusMsg('Token OK ✓');
+          return _token;
+        } catch(e) { console.warn('[Y171] silent refresh:', e.message); }
+      }
     }
-  } catch(e) { console.warn('[Y171] MSAL failed:', e.message); }
+  } catch(e) { console.warn('[Y171] MSAL:', e.message); }
 
-  // ── Tier 3: Navigate to auth page ───────────────────────
-  statusMsg('Sign in required — redirecting…');
-  const widgetUrl = 'https://udadmin2026.github.io/Sharepoint/y171/';
-  const spPage    = 'https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx';
-  const authUrl   = 'https://udadmin2026.github.io/Sharepoint/auth/'
-    + '?widget='   + encodeURIComponent(widgetUrl)
-    + '&returnTo=' + encodeURIComponent(spPage);
-
-  setTimeout(() => {
-    try { window.top.location.href = authUrl; }
-    catch(e) { window.open(authUrl, '_blank'); statusMsg('Sign-in tab opened — return here after signing in.'); }
-  }, 500);
+  // No token available — show sign-in button
+  statusMsg('Sign in required');
+  showSignInButton();
   return null;
 }
 
