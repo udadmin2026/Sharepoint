@@ -780,8 +780,19 @@ function showSignIn() {
   statusMsg('Sign in required…');
   const returnTo = encodeURIComponent('https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx');
   const authUrl  = 'https://udadmin2026.github.io/Sharepoint/auth/?returnTo=' + returnTo;
-  try { window.top.location.href = authUrl; }
-  catch(e) { window.open(authUrl, '_blank'); statusMsg('Sign-in tab opened — return here after signing in.'); }
+  try {
+    // Try top-frame navigation (works in browser, blocked in some mobile app sandboxes)
+    if (window.top === window.self) {
+      // Already top frame — just navigate
+      window.location.href = authUrl;
+    } else {
+      window.top.location.href = authUrl;
+    }
+  } catch(e) {
+    // Mobile SP app sandbox blocks top-frame nav — open new tab instead
+    window.open(authUrl, '_blank');
+    statusMsg('Tap the sign-in tab, sign in, then return here and refresh.');
+  }
 }
 
 // Read account directly from MSAL's account.keys index in localStorage
@@ -810,6 +821,9 @@ async function getToken() {
   if (!msalApp) {
     msalApp = new msal.PublicClientApplication(msalConfig);
     await msalApp.initialize();
+    // Brief pause — lets MSAL finish processing any cached state from a
+    // just-completed auth redirect before we call getAllAccounts()
+    await new Promise(r => setTimeout(r, 300));
   }
 
   // Try MSAL's getAllAccounts first
@@ -820,12 +834,9 @@ async function getToken() {
   if (accounts.length === 0) {
     const rawAccount = getAccountFromStorage();
     if (rawAccount) {
-      statusMsg('Auth: found account in localStorage directly — ' + rawAccount.username);
-      // Set active account so acquireTokenSilent can use it
-      try {
-        msalApp.setActiveAccount(rawAccount);
-        accounts = [rawAccount];
-      } catch(e) { console.warn('[Y171] setActiveAccount failed:', e.message); }
+      statusMsg('Auth: found account in localStorage — ' + rawAccount.username);
+      try { msalApp.setActiveAccount(rawAccount); accounts = [rawAccount]; }
+      catch(e) { console.warn('[Y171] setActiveAccount failed:', e.message); }
     }
   }
 
@@ -841,9 +852,19 @@ async function getToken() {
     }
   }
 
-  // No token — need sign in
+  // No token found — redirect to auth page, but guard against redirect loops.
+  // If we just came back from auth (sessionStorage flag set), show error instead of looping.
+  const loopGuard = sessionStorage.getItem('y171_auth_attempted');
+  if (loopGuard) {
+    sessionStorage.removeItem('y171_auth_attempted');
+    statusMsg('Auth failed after sign-in — token not found');
+    showError('Sign-in completed but token was not found. Please refresh the page.');
+    return null;
+  }
+
   statusMsg('No session — opening sign-in…');
-  setTimeout(showSignIn, 1000);
+  sessionStorage.setItem('y171_auth_attempted', '1');
+  setTimeout(showSignIn, 800);
   return null;
 }
 
