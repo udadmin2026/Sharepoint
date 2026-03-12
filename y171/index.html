@@ -1184,11 +1184,12 @@ async function loadData() {
           document.getElementById('prodJobLabel').textContent = '— (no project match found)';
           const stats = aggregateTons(allProd, projectMultipliers);
           renderStats(stats, 'All Entries', contractedTons);
+          renderDailyLog(allProd, 'All Entries');
           renderCharts(allProd, projectMultipliers);
         } else {
           const stats = aggregateTons(filtered, projectMultipliers);
           renderStats(stats, jobName || activeItem.Title || '', contractedTons);
-          renderDailyLog(matchedProd, jobName || activeItem.Title || '');
+          renderDailyLog(filtered, jobName || activeItem.Title || '');
           renderCharts(filtered, projectMultipliers);
         }
       } catch(prodErr) {
