@@ -1217,7 +1217,7 @@ async function loadData() {
 
 // Fetch ALL production entries with pagination (no date filter — captures full project history)
 async function fetchAllProduction(token) {
-  const baseSelect = `Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`;
+  const baseSelect = `Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title,Comments`;
   const baseExpand = PROD.project;
   let url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
           + `?$select=${baseSelect}&$expand=${baseExpand}&$top=5000`;
