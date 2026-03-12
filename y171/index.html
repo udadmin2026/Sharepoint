@@ -996,28 +996,72 @@ async function fetchProduction(token, projectTitle) {
 }
 
 // ── FETCH: Daily Comments ─────────────────────────────────
-let _detectedCommentField = 'Commetns'; // confirmed internal name (typo at SP column creation)
+let _detectedCommentField = 'Commetns';
+let _detectedYarderField  = null; // will be probed on first comments fetch
+
+async function probeProdListFields(token) {
+  try {
+    const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(PROD_LIST) + "')/fields"
+      + "?$select=Title,InternalName,TypeAsString"
+      + "&$filter=Hidden eq false and ReadOnlyField eq false"
+      + "&$top=200";
+    const r = await fetchSP(url, token, 10000);
+    if (!r.ok) { console.warn('[Y171] Field probe HTTP', r.status); return; }
+    const fields = (await r.json())?.d?.results ?? [];
+    console.log('[Y171] Prod list fields (' + fields.length + '):');
+    fields.forEach(function(f) {
+      const n = f.InternalName.toLowerCase();
+      if (n.includes('comment') || n.includes('yarder') || n.includes('machine')
+          || n.includes('unit') || n.includes('crew') || n.includes('commet')) {
+        console.log('[Y171]   ' + f.InternalName + ' (' + f.Title + ') [' + f.TypeAsString + ']');
+      }
+    });
+    // Auto-detect yarder/machine column
+    const yarderField = fields.find(function(f) {
+      const n = f.InternalName.toLowerCase();
+      return n.includes('yarder') && !n.includes('bucket') && !n.includes('cycle')
+          && !n.includes('hour') && !n.includes('yard');
+    }) || fields.find(function(f) {
+      const n = f.InternalName.toLowerCase();
+      return n === 'machine' || n === 'unit' || n.includes('machine') || n.includes('unit');
+    });
+    if (yarderField) {
+      _detectedYarderField = yarderField.InternalName;
+      console.log('[Y171] Auto-detected yarder/machine field: ' + _detectedYarderField);
+    } else {
+      console.warn('[Y171] Could not auto-detect yarder/machine field — will skip machine filter');
+    }
+    // Also confirm comment field
+    const commentField = fields.find(function(f) {
+      return f.InternalName === 'Commetns' || f.InternalName.toLowerCase().includes('comment');
+    });
+    if (commentField) console.log('[Y171] Comment field confirmed: ' + commentField.InternalName + ' (' + commentField.Title + ')');
+  } catch(e) {
+    console.warn('[Y171] Field probe error:', e.message);
+  }
+} // confirmed internal name (typo at SP column creation)
 
 async function fetchComments(token, projectTitle) {
+  // Probe field names on first run
+  if (_detectedYarderField === null) await probeProdListFields(token);
+
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() - 2);
 
-  // Use confirmed internal field name — Commetns (original typo in SP column)
-  const urlStar = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-    + `?$select=Id,${PROD.date},${PROD.project}/Title,${PROD.jobName},${PROD.yarder},Commetns`
-    + `&$expand=${PROD.project}`
-    + `&$filter=${PROD.date} ge datetime'${cutoff.toISOString()}'`
-    + `&$top=500&$orderby=${PROD.date} desc`;
+  // Build $select — include yarder field if detected
+  const yarderSel = _detectedYarderField ? ',' + _detectedYarderField : '';
+  const urlStar = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(PROD_LIST) + "')/items"
+    + "?$select=Id," + PROD.date + "," + PROD.project + "/Title," + PROD.jobName + yarderSel + ",Commetns"
+    + "&$expand=" + PROD.project
+    + "&$filter=" + PROD.date + " ge datetime'" + cutoff.toISOString() + "'"
+    + "&$top=500";
 
   try {
     const r = await fetchSP(urlStar, token, 15000);
     if (!r.ok) { console.warn('[Y171] fetchComments HTTP', r.status); return {}; }
     const items = (await r.json())?.d?.results ?? [];
     console.log('[Y171] Comment fetch got', items.length, 'items for machine', MACHINE);
-    if (items.length > 0) {
-      const sampleYarder = items[0][PROD.yarder];
-      console.log('[Y171] Sample Yarder field value:', JSON.stringify(sampleYarder), '(looking for:', MACHINE, ')');
-    }
+
     if (items.length === 0) return {};
 
     // Log all fields on first item for debugging
@@ -1069,9 +1113,11 @@ async function fetchComments(token, projectTitle) {
       const itemJob  = (item[PROD.jobName] || '').trim();
       if (projectTitle && itemProj !== projectTitle && itemJob !== projectTitle) continue;
 
-      // Filter by machine — Yarder column must match MACHINE constant
-      const yarder = (item[PROD.yarder] || '').trim();
-      if (yarder && yarder !== MACHINE) continue;
+      // Filter by machine — use probed field name
+      if (_detectedYarderField) {
+        const yarder = (item[_detectedYarderField] || '').trim();
+        if (yarder && yarder !== MACHINE) continue;
+      }
 
       const dateKey = (item[PROD.date] || '').slice(0, 10);
       const comment = (item[_detectedCommentField] || '').trim();
