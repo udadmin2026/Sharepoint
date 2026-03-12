@@ -203,9 +203,24 @@
     }
     .log-day-chip.is-today .log-day-chip-label { color: var(--green); font-weight: 700; }
     /* Hide scrollbar on date strip but keep scroll */
-    #logWeekStrip::-webkit-scrollbar { height: 3px; }
-    #logWeekStrip::-webkit-scrollbar-track { background: transparent; }
-    #logWeekStrip::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 2px; }
+    #logWeekStrip { scroll-behavior: smooth; }
+    #logWeekStrip::-webkit-scrollbar { height: 5px; }
+    #logWeekStrip::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 3px; }
+    #logWeekStrip::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.25); border-radius: 3px; }
+    #logWeekStrip::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.45); }
+    .log-strip-scroll-btn {
+      flex-shrink: 0;
+      background: var(--card-border);
+      border: none;
+      color: rgba(255,255,255,0.7);
+      border-radius: 6px;
+      width: 26px; height: 26px;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      transition: background 0.15s;
+    }
+    .log-strip-scroll-btn:hover { background: var(--blue); color: #fff; }
 
     /* ── RESPONSIVE ── */
     @media (max-width: 860px) {
@@ -342,7 +357,9 @@
           <button onclick="event.stopPropagation();logGoToday()" id="logTodayBtn"
             style="flex-shrink:0;background:var(--red);border:none;color:#fff;border-radius:6px;
                    font-size:11px;font-weight:700;padding:5px 10px;cursor:pointer;letter-spacing:.04em">TODAY</button>
-          <div id="logWeekStrip" style="display:flex;gap:4px;overflow-x:auto;flex:1;padding-bottom:2px"></div>
+          <button class="log-strip-scroll-btn" onclick="event.stopPropagation();logStripScroll(1)" title="Scroll back">‹</button>
+          <div id="logWeekStrip" style="display:flex;gap:4px;overflow-x:auto;flex:1;padding-bottom:4px"></div>
+          <button class="log-strip-scroll-btn" onclick="event.stopPropagation();logStripScroll(-1)" title="Scroll forward">›</button>
         </div>
         <!-- Tons for selected day -->
         <div id="logDayTons" style="font-size:12px;color:var(--muted);padding:0 0 6px;text-align:center"></div>
@@ -426,7 +443,7 @@ const PROD = {
   tonsPerYard:  'TonsPerYard_x0028_Number_x0029_',
   actualTons:   'AcutalTons',           // pre-calculated fallback
   comments:     'Commetns',             // confirmed internal name (typo in original SP column)
-  yarder:       'Yarder',               // machine/unit column on production entries
+  yarderOp:     'YarderOperator',       // Lookup — confirmed via field probe
 };
 // Possible comment column internal names to probe (tried in order)
 const COMMENT_FIELDS = [
@@ -578,9 +595,9 @@ function renderCharts(entries, projectMultipliers) {
   const weekly  = buildWeeklyData(entries, projectMultipliers);
   const monthly = buildMonthlyData(entries, projectMultipliers);
 
-  const Navy   = 'rgba(35,45,99,0.85)';
-  const NavyB  = 'rgba(35,45,99,1)';
-  const Green  = 'rgba(0,200,117,0.85)';
+  const Navy   = 'rgba(140,155,210,0.75)';  // lighter blue-grey — readable on dark bg
+  const NavyB  = 'rgba(140,155,210,1)';
+  const Green  = 'rgba(0,200,117,0.90)';
   const GreenB = 'rgba(0,200,117,1)';
 
   const mkColors = (data) => ({
@@ -592,6 +609,9 @@ function renderCharts(entries, projectMultipliers) {
     return {
       responsive: true,
       maintainAspectRatio: true,
+      animation: { duration: 300 },
+      onHover: null,
+      events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -835,6 +855,11 @@ function renderLogDay() {
   }
 
   renderWeekStrip(day);
+  // Scroll selected chip into view
+  setTimeout(function() {
+    const active = document.querySelector('#logWeekStrip .log-day-chip.active');
+    if (active) active.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }, 50);
 }
 
 function renderWeekStrip(selectedDay) {
@@ -871,6 +896,13 @@ function toggleLog() {
   const open = body.style.display !== 'none';
   body.style.display = open ? 'none' : '';
   btn.textContent = open ? '+' : '−';
+}
+
+function logStripScroll(dir) {
+  // dir: 1 = scroll left (back in time), -1 = scroll right (forward)
+  const strip = document.getElementById('logWeekStrip');
+  if (!strip) return;
+  strip.scrollBy({ left: dir * 120, behavior: 'smooth' });
 }
 
 function logGoToday() {
@@ -997,141 +1029,8 @@ async function fetchProduction(token, projectTitle) {
 
 // ── FETCH: Daily Comments ─────────────────────────────────
 let _detectedCommentField = 'Commetns';
-let _detectedYarderField  = null; // will be probed on first comments fetch
+let _detectedYarderField  = 'YarderOperator'; // confirmed via field probe (Lookup type)
 
-async function probeProdListFields(token) {
-  try {
-    const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(PROD_LIST) + "')/fields"
-      + "?$select=Title,InternalName,TypeAsString"
-      + "&$filter=Hidden eq false and ReadOnlyField eq false"
-      + "&$top=200";
-    const r = await fetchSP(url, token, 10000);
-    if (!r.ok) { console.warn('[Y171] Field probe HTTP', r.status); return; }
-    const fields = (await r.json())?.d?.results ?? [];
-    console.log('[Y171] Prod list fields (' + fields.length + '):');
-    fields.forEach(function(f) {
-      const n = f.InternalName.toLowerCase();
-      if (n.includes('comment') || n.includes('yarder') || n.includes('machine')
-          || n.includes('unit') || n.includes('crew') || n.includes('commet')) {
-        console.log('[Y171]   ' + f.InternalName + ' (' + f.Title + ') [' + f.TypeAsString + ']');
-      }
-    });
-    // Auto-detect yarder/machine column
-    const yarderField = fields.find(function(f) {
-      const n = f.InternalName.toLowerCase();
-      return n.includes('yarder') && !n.includes('bucket') && !n.includes('cycle')
-          && !n.includes('hour') && !n.includes('yard');
-    }) || fields.find(function(f) {
-      const n = f.InternalName.toLowerCase();
-      return n === 'machine' || n === 'unit' || n.includes('machine') || n.includes('unit');
-    });
-    if (yarderField) {
-      _detectedYarderField = yarderField.InternalName;
-      console.log('[Y171] Auto-detected yarder/machine field: ' + _detectedYarderField);
-    } else {
-      console.warn('[Y171] Could not auto-detect yarder/machine field — will skip machine filter');
-    }
-    // Also confirm comment field
-    const commentField = fields.find(function(f) {
-      return f.InternalName === 'Commetns' || f.InternalName.toLowerCase().includes('comment');
-    });
-    if (commentField) console.log('[Y171] Comment field confirmed: ' + commentField.InternalName + ' (' + commentField.Title + ')');
-  } catch(e) {
-    console.warn('[Y171] Field probe error:', e.message);
-  }
-} // confirmed internal name (typo at SP column creation)
-
-async function fetchComments(token, projectTitle) {
-  // Probe field names on first run
-  if (_detectedYarderField === null) await probeProdListFields(token);
-
-  const cutoff = new Date();
-  cutoff.setMonth(cutoff.getMonth() - 2);
-
-  // Build $select — include yarder field if detected
-  const yarderSel = _detectedYarderField ? ',' + _detectedYarderField : '';
-  const urlStar = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(PROD_LIST) + "')/items"
-    + "?$select=Id," + PROD.date + "," + PROD.project + "/Title," + PROD.jobName + yarderSel + ",Commetns"
-    + "&$expand=" + PROD.project
-    + "&$filter=" + PROD.date + " ge datetime'" + cutoff.toISOString() + "'"
-    + "&$top=500";
-
-  try {
-    const r = await fetchSP(urlStar, token, 15000);
-    if (!r.ok) { console.warn('[Y171] fetchComments HTTP', r.status); return {}; }
-    const items = (await r.json())?.d?.results ?? [];
-    console.log('[Y171] Comment fetch got', items.length, 'items for machine', MACHINE);
-
-    if (items.length === 0) return {};
-
-    // Log all fields on first item for debugging
-    if (!_detectedCommentField) {
-      const skip = new Set(['odata','__metadata','ID','Id','GUID','Title','Date','Modified',
-        'Created','FileRef','FileDirRef','FileLeafRef','UniqueId','FileSystemObjectType',
-        'ServerRedirectedEmbedUri','ServerRedirectedEmbedUrl','ContentTypeId','ComplianceAssetId',
-        'Attachments','AuthorId','EditorId','OData__UIVersionString','ItemChildCount',
-        'FolderChildCount','AppAuthorId','AppEditorId']);
-      const allKeys = Object.keys(items[0]).filter(k => {
-        if (skip.has(k)) return false;
-        const lk = k.toLowerCase();
-        return !lk.startsWith('odata') && !lk.startsWith('_') && !lk.includes('lookupid');
-      });
-      console.log('[Y171] Non-system fields:', allKeys.join(', '));
-
-      // Log the value of every field on first 3 items
-      for (const key of allKeys) {
-        const vals = items.slice(0, 3).map(i => i[key]).filter(v => v != null && v !== '');
-        if (vals.length > 0) console.log('[Y171]', key, ':', JSON.stringify(vals[0]).slice(0,100));
-      }
-
-      // Detect comment field: long string, not a number, not a known production field
-      const prodFields = new Set([PROD.buckets, PROD.yardsPerBkt, PROD.tonsPerYard,
-        PROD.actualTons, PROD.jobName, 'YarderCycles','Yarder_x0020_Cycles',
-        'MechanicHours','Mechanic_x0020_Hours','YarderHours','Yarder_x0020_Hours']);
-      for (const key of allKeys) {
-        if (prodFields.has(key)) continue;
-        for (const item of items) {
-          const v = item[key];
-          if (typeof v === 'string' && v.trim().length > 10) {
-            console.log('[Y171] Comment field detected:', key, '=', v.slice(0,80));
-            _detectedCommentField = key;
-            break;
-          }
-        }
-        if (_detectedCommentField) break;
-      }
-    }
-
-    if (!_detectedCommentField) { console.warn('[Y171] No comment field found'); return {}; }
-
-    // Build date → comment map — filter by project title AND machine
-    const map = {};
-    for (const item of items) {
-      // Filter by project title
-      const proj = item[PROD.project];
-      const itemProj = proj?.Title || proj || '';
-      const itemJob  = (item[PROD.jobName] || '').trim();
-      if (projectTitle && itemProj !== projectTitle && itemJob !== projectTitle) continue;
-
-      // Filter by machine — use probed field name
-      if (_detectedYarderField) {
-        const yarder = (item[_detectedYarderField] || '').trim();
-        if (yarder && yarder !== MACHINE) continue;
-      }
-
-      const dateKey = (item[PROD.date] || '').slice(0, 10);
-      const comment = (item[_detectedCommentField] || '').trim();
-      if (dateKey && comment) {
-        map[dateKey] = map[dateKey] ? map[dateKey] + '\n\n' + comment : comment;
-      }
-    }
-    console.log('[Y171] Comment map:', Object.keys(map).length, 'dates with comments');
-    return map;
-  } catch(e) {
-    console.warn('[Y171] fetchComments error:', e.message);
-    return {};
-  }
-}
 
 
 // ── CALC: Tonnage per entry ────────────────────────────────
