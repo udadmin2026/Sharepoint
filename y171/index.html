@@ -1080,18 +1080,27 @@ async function fetchWODetails(token) {
   const select = 'Id,' + [WOD.title,WOD.masterId,WOD.typeOfSvc,WOD.timeSpent,
     WOD.comments,WOD.timeStart,WOD.timeEnd,WOD.hourlyRate,WOD.hourlyTotal,
     WOD.materialTotal,WOD.estCost].join(',');
-  // WOD.title (Title) = the person who did the work (per app data)
-  // No Author expand needed — Title holds the name
-  const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_DET_LIST) + "')/items"
-    + "?$select=" + select + "&$top=2000";
-  const r = await fetchSP(url, token, 20000);
-  if (!r.ok) { console.warn('[Y171] WOD fetch HTTP', r.status); return []; }
-  const results = (await r.json())?.d?.results ?? [];
-  if (results.length > 0 && !window._wodProbeDone) {
-    window._wodProbeDone = true;
-    console.log('[Y171] WOD sample:', JSON.stringify(results[0]).slice(0,500));
+  // Paginate — WOD list can exceed 2000 items; WO 2150 detail (Id ~13834) is deep in the list
+  let url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_DET_LIST) + "')/items"
+    + "?$select=" + select + "&$top=5000";
+  const allResults = [];
+  let pageCount = 0;
+  while (url && pageCount < 6) {  // up to 30,000 detail entries
+    const r = await fetchSP(url, token, 30000);
+    if (!r.ok) { console.warn('[Y171] WOD fetch HTTP', r.status, 'on page', pageCount+1); break; }
+    const data = await r.json();
+    const results = data?.d?.results ?? [];
+    allResults.push(...results);
+    url = data?.d?.__next || null;
+    pageCount++;
+    if (results.length < 5000) break; // last page
   }
-  return results;
+  console.log('[Y171] WOD loaded:', allResults.length, 'entries in', pageCount, 'page(s)');
+  if (allResults.length > 0 && !window._wodProbeDone) {
+    window._wodProbeDone = true;
+    console.log('[Y171] WOD sample:', JSON.stringify(allResults[0]).slice(0,300));
+  }
+  return allResults;
 }
 
 function priorityColor(p) {
