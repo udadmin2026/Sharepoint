@@ -1140,7 +1140,7 @@ function renderWOGroup(statusKey, color, wos, groupId, isOpen) {
     const hardEnd  = wo[WO.hardEndDate] ? fmtDate(wo[WO.hardEndDate]) : '';
     const estHrs   = parseFloat(wo[WO.estHours]) || 0;
     const actHrs   = parseFloat(wo[WO.hoursTotal]) || 0;
-    const detailCount = (_woDetails[String(wo[WO.woId])] || []).length;
+    const detailCount = (_woDetails[String(wo.Id)] || []).length;
     const isSelected = _woSelected === wo.Id;
     h += '<div class="wo-row' + (isSelected ? ' selected' : '') + '" onclick="selectWO(' + wo.Id + ')">';
     h += '<div style="text-align:center">';
@@ -1222,7 +1222,7 @@ function renderWorkOrders() {
 }
 
 function renderWODetailPanel(wo) {
-  const details = _woDetails[String(wo[WO.woId])] || [];
+  const details = _woDetails[String(wo.Id)] || [];
   let h = '<div class="wo-detail-panel">';
 
   // Header: title + WO ID + close button
@@ -1884,13 +1884,13 @@ async function loadData() {
           _woDetails[mid].push(d);
         });
 
-        const matched = wos.filter(function(w){ const k = String(w[WO.woId]); return _woDetails[k] && _woDetails[k].length > 0; });
-        console.log('[Y171] WOs with matching details:', matched.length, 'of', wos.length, '— index by WOID');
+        const matched = wos.filter(function(w){ const k = String(w.Id); return _woDetails[k] && _woDetails[k].length > 0; });
+        console.log('[Y171] WOs with matching details:', matched.length, 'of', wos.length, '— index by SP Id');
         // Log a sample WO and its WOID key vs what's in the index
         const sample = wos.find(function(w){ return String(w[WO.woId]) === '2150'; });
         if (sample) {
-          const key = String(sample[WO.woId]);
-          console.log('[Y171] WO 2150 lookup — WOID field:', JSON.stringify(sample[WO.woId]), '| key:', key, '| details found:', JSON.stringify(_woDetails[key]));
+          const key = String(sample.Id);
+          console.log('[Y171] WO 2150 — SP Id:', sample.Id, '| WOID:', sample[WO.woId], '| details by SP Id:', (_woDetails[key]||[]).length, 'entries');
         }
         const detSample = dets.slice(0,3).map(function(d){ const r=d[WOD.masterId]; const n=(r!==null&&typeof r==='object')?(r.Id||r):r; return {raw:JSON.stringify(r),parsed:parseInt(n)}; });
         console.log('[Y171] WOD MasterID samples:', JSON.stringify(detSample));
