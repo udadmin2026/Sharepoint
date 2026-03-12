@@ -718,6 +718,18 @@ let _logDays       = [];   // unique dates DESC, format 'YYYY-MM-DD'
 let _commentField  = null; // detected comment field internal name
 
 function detectCommentField(entries) {
+  if (entries.length > 0) {
+    // Log all fields on first entry so we can identify the comment column
+    const allFields = Object.keys(entries[0]).filter(k => !k.startsWith('odata') && !k.startsWith('__'));
+    console.log('[Y171] Production entry fields:', allFields.join(', '));
+    // Log fields that look like they could be comments (non-numeric, non-empty strings)
+    allFields.forEach(f => {
+      const v = entries[0][f];
+      if (typeof v === 'string' && v.length > 5 && isNaN(v)) {
+        console.log('[Y171] Possible text field:', f, '=', v.slice(0, 80));
+      }
+    });
+  }
   for (const field of COMMENT_FIELDS) {
     for (const e of entries) {
       const val = e[field];
@@ -727,7 +739,6 @@ function detectCommentField(entries) {
       }
     }
   }
-  // No data found but still pick the first field that exists on any entry
   for (const field of COMMENT_FIELDS) {
     if (entries.length > 0 && field in entries[0]) return field;
   }
@@ -966,9 +977,9 @@ async function fetchProduction(token, projectTitle) {
 // projectMultipliers: { bucketSize, tonsPerYd, tonsBucket } from Project List item
 function calcTons(entry, projectMultipliers) {
   const buckets = parseFloat(entry[PROD.buckets]) || 0;
-  if (buckets === 0) return 0;
+  if (buckets === 0) return parseFloat(entry[PROD.actualTons]) || 0;
 
-  const { bucketSize, tonsPerYd, tonsBucket } = projectMultipliers;
+  const { bucketSize = 0, tonsPerYd = 0, tonsBucket = 0 } = projectMultipliers || {};
 
   // Primary formula: Yarder Buckets × Yarder Bucket Size × Tons/Yd
   if (bucketSize > 0 && tonsPerYd > 0) {
