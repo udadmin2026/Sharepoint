@@ -444,8 +444,11 @@ let _expiry = 0;
 async function getMsalApp() {
   if (!msalApp) {
     msalApp = new msal.PublicClientApplication(msalConfig);
-    await msalApp.initialize();
-    await new Promise(r => setTimeout(r, 200));
+    await Promise.race([
+      msalApp.initialize(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('MSAL init timeout')), 5000))
+    ]).catch(e => console.warn('[Y171] MSAL init:', e.message));
+    await new Promise(r => setTimeout(r, 100));
   }
   return msalApp;
 }
@@ -970,83 +973,82 @@ async function fetchProduction(token, projectTitle) {
 }
 
 // ── FETCH: Daily Comments ─────────────────────────────────
-// Fetches comments separately using $select=* to avoid internal name guessing
 let _detectedCommentField = null;
 
 async function fetchComments(token, projectTitle) {
-  // First call: probe with $select=* on a single item to find the comment field
-  if (!_detectedCommentField) {
-    const probeUrl = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-      + `?$top=5&$orderby=${PROD.date} desc&$select=*&$expand=${PROD.project}`;
-    try {
-      const r = await fetchSP(probeUrl, token);
-      if (r.ok) {
-        const data = await r.json();
-        const items = data?.d?.results ?? [];
-        if (items.length > 0) {
-          const allKeys = Object.keys(items[0]).filter(k => !k.startsWith('odata') && !k.startsWith('__'));
-          console.log('[Y171] All production fields:', allKeys.join(', '));
-          // Find comment field — look for non-numeric text fields with content
-          for (const key of allKeys) {
-            for (const item of items) {
-              const v = item[key];
-              if (typeof v === 'string' && v.length > 10 && isNaN(Number(v))
-                  && !key.includes('Title') && !key.includes('Date')
-                  && !key.includes('odata') && !key.includes('GUID')
-                  && !key.includes('Url') && !key.includes('Modified')
-                  && !key.includes('Created') && !key.includes('Author')
-                  && !key.includes('Editor') && !key.includes('Name')) {
-                console.log('[Y171] Comment field found:', key, '=', v.slice(0, 60));
-                _detectedCommentField = key;
-                break;
-              }
-            }
-            if (_detectedCommentField) break;
-          }
-          if (!_detectedCommentField) {
-            // Fallback: try known candidates that exist on items
-            for (const candidate of ['Comments0', '_Comments', 'Yarder_x0020_Comments', 'Body', 'Note']) {
-              if (candidate in items[0]) { _detectedCommentField = candidate; break; }
-            }
-          }
-        }
-      }
-    } catch(e) { console.warn('[Y171] Comment probe failed:', e.message); }
-    if (!_detectedCommentField) {
-      console.warn('[Y171] Could not detect comment field');
-      return {};
-    }
-  }
-
-  // Now fetch recent entries with just Id, Date, Project, and the comment field
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() - 2);
+
+  // Use $select=* to get all fields — avoids needing the exact internal name
+  // Limit to 200 entries to keep it fast (comments only, not the full production dataset)
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-    + `?$select=Id,${PROD.date},${PROD.project}/Title,${_detectedCommentField}`
+    + `?$select=Id,${PROD.date},${PROD.project}/Title,${PROD.jobName}`
     + `&$expand=${PROD.project}`
     + `&$filter=${PROD.date} ge datetime'${cutoff.toISOString()}'`
-    + `&$top=500&$orderby=${PROD.date} desc`;
+    + `&$top=200&$orderby=${PROD.date} desc`;
+
+  // Fetch without comment field first to get IDs, then use $select=* on individual items
+  // Actually — just fetch with $select=* directly, SP REST ignores unknown $select values
+  const urlStar = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
+    + `?$filter=${PROD.date} ge datetime'${cutoff.toISOString()}'`
+    + `&$top=200&$orderby=${PROD.date} desc&$expand=${PROD.project}`;
 
   try {
-    const r = await fetchSP(url, token);
-    if (!r.ok) { console.warn('[Y171] Comments fetch failed:', r.status); return {}; }
+    const r = await fetchSP(urlStar, token, 15000);
+    if (!r.ok) {
+      console.warn('[Y171] fetchComments HTTP', r.status);
+      return {};
+    }
     const items = (await r.json())?.d?.results ?? [];
+    if (items.length === 0) return {};
 
-    // Build map: 'YYYY-MM-DD' → comment text (for entries matching project)
-    const map = {};
-    for (const item of items) {
-      const projTitle = (item[PROD.project]?.Title || '').trim();
-      if (projectTitle && projTitle !== projectTitle) continue;
-      const dateKey = item[PROD.date]?.slice(0, 10);
-      const comment = (item[_detectedCommentField] || '').trim();
-      if (dateKey && comment) {
-        map[dateKey] = map[dateKey] ? map[dateKey] + '
-
-' + comment : comment;
+    // Auto-detect comment field on first successful fetch
+    if (!_detectedCommentField) {
+      const allKeys = Object.keys(items[0]).filter(k =>
+        !k.startsWith('odata') && !k.startsWith('__') &&
+        !['Id','ID','Title','Date','Modified','Created','GUID','FileRef',
+          'FileDirRef','FileLeafRef','UniqueId','ServerRedirectedEmbedUri'].includes(k)
+      );
+      console.log('[Y171] Comment probe fields:', allKeys.join(', '));
+      for (const key of allKeys) {
+        for (const item of items) {
+          const v = item[key];
+          if (typeof v === 'string' && v.length > 15 && isNaN(Number(v))
+              && !key.toLowerCase().includes('url')
+              && !key.toLowerCase().includes('name')
+              && !key.toLowerCase().includes('author')
+              && !key.toLowerCase().includes('editor')) {
+            console.log('[Y171] Comment field:', key, '→', v.slice(0, 80));
+            _detectedCommentField = key;
+            break;
+          }
+        }
+        if (_detectedCommentField) break;
       }
     }
+
+    if (!_detectedCommentField) {
+      console.warn('[Y171] No comment field found');
+      return {};
+    }
+
+    // Build date → comment map filtered to this project
+    const map = {};
+    for (const item of items) {
+      const projTitle = (item[PROD.project]?.Title || item[PROD.jobName] || '').trim();
+      if (projectTitle && projTitle !== projectTitle) continue;
+      const dateKey = (item[PROD.date] || '').slice(0, 10);
+      const comment = (item[_detectedCommentField] || '').trim();
+      if (dateKey && comment) {
+        map[dateKey] = map[dateKey] ? map[dateKey] + '\n\n' + comment : comment;
+      }
+    }
+    console.log('[Y171] Comment map built:', Object.keys(map).length, 'dates');
     return map;
-  } catch(e) { console.warn('[Y171] Comments fetch error:', e.message); return {}; }
+  } catch(e) {
+    console.warn('[Y171] fetchComments error:', e.message);
+    return {};
+  }
 }
 
 // ── CALC: Tonnage per entry ────────────────────────────────
@@ -1202,7 +1204,10 @@ async function getToken() {
     statusMsg('Auth: ' + accounts.length + ' account(s)…');
     for (const account of accounts) {
       try {
-        const r = await app.acquireTokenSilent({ scopes: TOKEN_SCOPE, account });
+        const r = await Promise.race([
+          app.acquireTokenSilent({ scopes: TOKEN_SCOPE, account }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('silent timeout')), 8000))
+        ]);
         _token  = r.accessToken;
         _expiry = r.expiresOn ? new Date(r.expiresOn).getTime() : Date.now() + 3600000;
         statusMsg('Token OK ✓');
