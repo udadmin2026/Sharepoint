@@ -137,6 +137,68 @@
     .chart-subtitle { font-size: 11px; color: var(--muted); }
     .chart-body { padding: 14px 16px 16px; position: relative; }
 
+    /* ── DAILY LOG ── */
+    .log-entry {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+    }
+    .log-entry-empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 20px;
+      font-size: 13px;
+    }
+    .log-comment {
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .log-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .log-day-chip {
+      flex-shrink: 0;
+      width: 42px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 4px 0;
+      text-align: center;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+    .log-day-chip.active {
+      background: var(--blue);
+      border-color: var(--blue);
+    }
+    .log-day-chip.has-comment {
+      border-color: var(--green);
+    }
+    .log-day-chip.active.has-comment {
+      background: var(--green);
+      border-color: var(--green);
+    }
+    .log-day-chip-label {
+      font-size: 9px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .log-day-chip-num {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .log-day-chip.active .log-day-chip-label,
+    .log-day-chip.active .log-day-chip-num { color: #fff; }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 860px) {
       .charts-section { grid-template-columns: 1fr; }
@@ -251,6 +313,30 @@
       </div>
     </div>
 
+    <!-- Daily Log / Comments -->
+    <div class="production-section" id="dailyLogSection" style="display:none">
+      <div class="production-header">
+        <div class="production-title">
+          <span class="prod-icon">💬</span>
+          Daily Log
+          <span class="production-job" id="logJobLabel"></span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);">Comments by date</div>
+      </div>
+      <!-- Date navigation -->
+      <div id="logNav" style="display:flex;align-items:center;gap:8px;padding:10px 0 4px">
+        <button onclick="logNavStep(-1)" style="background:var(--card-border);border:none;color:#fff;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:16px">‹</button>
+        <span id="logDateLabel" style="flex:1;text-align:center;font-size:13px;font-weight:600;color:var(--text)"></span>
+        <button onclick="logNavStep(1)" id="logNavNext" style="background:var(--card-border);border:none;color:#fff;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:16px">›</button>
+      </div>
+      <!-- Ton summary for selected day -->
+      <div id="logDayTons" style="font-size:12px;color:var(--muted);padding:0 0 8px;text-align:center"></div>
+      <!-- Comments list -->
+      <div id="logBody" style="min-height:60px"></div>
+      <!-- Week strip -->
+      <div id="logWeekStrip" style="display:flex;gap:4px;padding:10px 0 2px;overflow-x:auto"></div>
+    </div>
+
   </div><!-- /main-col -->
 
   <!-- RIGHT: Job Details sidebar -->
@@ -325,7 +411,19 @@ const PROD = {
   yardsPerBkt:  'YardsPerBucket_x0028_Number_x002',
   tonsPerYard:  'TonsPerYard_x0028_Number_x0029_',
   actualTons:   'AcutalTons',           // pre-calculated fallback
+  // Comments — try multiple possible internal names; widget detects which one has data
+  comments:     'Yesterdays_x0020_Comments', // fallback candidates tried at runtime
 };
+// Possible comment column internal names to probe (tried in order)
+const COMMENT_FIELDS = [
+  'Yesterdays_x0020_Comments',
+  'YesterdaysComments',
+  'Comments',
+  'Comment',
+  'DailyComments',
+  'Daily_x0020_Comments',
+  'Notes',
+];
 
 const REFRESH_MS = 2 * 60 * 1000;
 let timer = null;
@@ -613,6 +711,145 @@ function setCards(activeItems, mobilItems) {
 }
 
 // ── RENDER: Production Stats ───────────────────────────────
+// ── DAILY LOG ─────────────────────────────────────────────
+let _logEntries    = [];   // all prod entries for active project (with comments)
+let _logDayIndex   = 0;    // index into _logDays (0 = most recent)
+let _logDays       = [];   // unique dates DESC, format 'YYYY-MM-DD'
+let _commentField  = null; // detected comment field internal name
+
+function detectCommentField(entries) {
+  for (const field of COMMENT_FIELDS) {
+    for (const e of entries) {
+      const val = e[field];
+      if (val && typeof val === 'string' && val.trim().length > 0) {
+        console.log('[Y171] Comment field detected:', field);
+        return field;
+      }
+    }
+  }
+  // No data found but still pick the first field that exists on any entry
+  for (const field of COMMENT_FIELDS) {
+    if (entries.length > 0 && field in entries[0]) return field;
+  }
+  return COMMENT_FIELDS[0];
+}
+
+function getEntryDate(entry) {
+  const raw = entry[PROD.date];
+  if (!raw) return null;
+  const d = new Date(raw);
+  return d.toISOString().slice(0, 10); // 'YYYY-MM-DD'
+}
+
+function renderDailyLog(entries, jobName) {
+  const section = document.getElementById('dailyLogSection');
+  if (!section) return;
+
+  if (!entries || entries.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+
+  _commentField = detectCommentField(entries);
+  _logEntries   = entries;
+
+  // Build unique days list (DESC)
+  const daySet = new Set();
+  entries.forEach(e => { const d = getEntryDate(e); if (d) daySet.add(d); });
+  _logDays = [...daySet].sort((a,b) => b.localeCompare(a));
+
+  if (_logDays.length === 0) { section.style.display = 'none'; return; }
+
+  section.style.display = '';
+  document.getElementById('logJobLabel').textContent = jobName ? `— ${jobName}` : '';
+
+  _logDayIndex = 0;
+  renderLogDay();
+}
+
+function renderLogDay() {
+  if (_logDays.length === 0) return;
+  const day = _logDays[_logDayIndex];
+  const dayEntries = _logEntries.filter(e => getEntryDate(e) === day);
+
+  // Format date label
+  const d = new Date(day + 'T12:00:00');
+  const dayLabel = d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+  document.getElementById('logDateLabel').textContent = dayLabel;
+
+  // Nav button states
+  const prevBtn = document.querySelector('#dailyLogSection button:first-of-type');
+  const nextBtn = document.getElementById('logNavNext');
+  if (prevBtn) prevBtn.disabled = _logDayIndex >= _logDays.length - 1;
+  if (nextBtn) nextBtn.disabled = _logDayIndex <= 0;
+  if (prevBtn) prevBtn.style.opacity = prevBtn.disabled ? '.3' : '1';
+  if (nextBtn) nextBtn.style.opacity = nextBtn.disabled ? '.3' : '1';
+
+  // Tons for the day
+  const dayTons = dayEntries.reduce((sum, e) => sum + calcTons(e), 0);
+  document.getElementById('logDayTons').textContent = dayTons > 0
+    ? `${fmtTons(dayTons)} tons produced`
+    : '';
+
+  // Comments
+  const logBody = document.getElementById('logBody');
+  const comments = dayEntries
+    .map(e => (e[_commentField] || '').trim())
+    .filter(Boolean);
+
+  if (comments.length === 0) {
+    logBody.innerHTML = `<div class="log-entry-empty">No comments recorded for this date</div>`;
+  } else {
+    logBody.innerHTML = comments.map(c => `
+      <div class="log-entry">
+        <div class="log-comment">${c.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+      </div>`).join('');
+  }
+
+  // Week strip — show 14 days centered on current day
+  renderWeekStrip(day);
+}
+
+function renderWeekStrip(selectedDay) {
+  const strip = document.getElementById('logWeekStrip');
+  if (!strip) return;
+
+  // Show last 14 days that have entries
+  const shown = _logDays.slice(0, 14);
+  const dayNames = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+  // Map days with comments
+  const daysWithComments = new Set(
+    _logEntries
+      .filter(e => (e[_commentField] || '').trim().length > 0)
+      .map(e => getEntryDate(e))
+  );
+
+  strip.innerHTML = shown.map((day, i) => {
+    const d    = new Date(day + 'T12:00:00');
+    const dow  = dayNames[d.getDay()];
+    const num  = d.getDate();
+    const idx  = _logDays.indexOf(day);
+    const isActive   = day === selectedDay;
+    const hasComment = daysWithComments.has(day);
+    return `<div class="log-day-chip ${isActive ? 'active' : ''} ${hasComment ? 'has-comment' : ''}"
+      onclick="logNavTo(${idx})">
+      <div class="log-day-chip-label">${dow}</div>
+      <div class="log-day-chip-num">${num}</div>
+    </div>`;
+  }).join('');
+}
+
+function logNavStep(dir) {
+  _logDayIndex = Math.max(0, Math.min(_logDays.length - 1, _logDayIndex - dir));
+  renderLogDay();
+}
+
+function logNavTo(idx) {
+  _logDayIndex = idx;
+  renderLogDay();
+}
+
 function renderStats(stats, jobName, contractedTons) {
   const pct = contractedTons > 0 ? Math.min((stats.total / contractedTons) * 100, 100) : null;
 
@@ -700,8 +937,10 @@ async function fetchProduction(token, projectTitle) {
   cutoff.setMonth(cutoff.getMonth() - 2);
   const cutoffISO = cutoff.toISOString();
 
+  // Build select including all candidate comment fields (SP ignores unknown fields gracefully)
+  const commentSelects = COMMENT_FIELDS.join(',');
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`
+            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title,${commentSelects}`
             + `&$expand=${PROD.project}`
             + `&$filter=${PROD.date} ge datetime'${cutoffISO}'`
             + `&$top=2000`
@@ -807,12 +1046,24 @@ function showSignInButton() {
 async function signInWithPopup() {
   const btn = document.getElementById('signInBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
+
+  // Mobile webview detection — SP mobile app blocks window.open entirely
+  const isMobileApp = /SharePointMobile|SharePoint.*Mobile|iPhone|iPad|Android/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 2 && !/Windows/i.test(navigator.userAgent));
+
+  if (isMobileApp) {
+    // Mobile: full-page redirect to auth, which writes token to localStorage then returns
+    statusMsg('Redirecting to sign in…');
+    const returnTo = encodeURIComponent('https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx');
+    try { window.top.location.href = 'https://udadmin2026.github.io/Sharepoint/auth/?returnTo=' + returnTo; }
+    catch(e) { window.location.href = 'https://udadmin2026.github.io/Sharepoint/auth/?returnTo=' + returnTo; }
+    return;
+  }
+
+  // Desktop: MSAL loginPopup (user-triggered, never blocked)
   statusMsg('Opening Microsoft login…');
   try {
     const app = await getMsalApp();
-    // loginPopup is triggered by direct user click — allowed by all browsers
-    // including mobile. Opens a small Microsoft login window, handles auth,
-    // closes itself, and returns the token directly here.
     const result = await app.loginPopup({ scopes: TOKEN_SCOPE });
     if (result && result.accessToken) {
       _token  = result.accessToken;
@@ -822,8 +1073,8 @@ async function signInWithPopup() {
     }
   } catch(e) {
     console.warn('[Y171] loginPopup failed:', e.message);
-    // Popup blocked (mobile app) — fall back to redirect
-    if (e.message && (e.message.includes('popup') || e.message.includes('block'))) {
+    if (e.message && (e.message.includes('popup') || e.message.includes('block') || e.message.includes('cancel'))) {
+      // Popup was blocked or cancelled — try redirect fallback
       statusMsg('Redirecting to sign in…');
       const returnTo = encodeURIComponent('https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx');
       try { window.top.location.href = 'https://udadmin2026.github.io/Sharepoint/auth/?returnTo=' + returnTo; }
@@ -937,6 +1188,7 @@ async function loadData() {
         } else {
           const stats = aggregateTons(filtered, projectMultipliers);
           renderStats(stats, jobName || activeItem.Title || '', contractedTons);
+          renderDailyLog(matchedProd, jobName || activeItem.Title || '');
           renderCharts(filtered, projectMultipliers);
         }
       } catch(prodErr) {
