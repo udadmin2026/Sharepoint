@@ -411,16 +411,14 @@ const PROD = {
   yardsPerBkt:  'YardsPerBucket_x0028_Number_x002',
   tonsPerYard:  'TonsPerYard_x0028_Number_x0029_',
   actualTons:   'AcutalTons',           // pre-calculated fallback
-  comments:     'Comments',              // confirmed internal name
+  comments:     'Commetns',             // confirmed internal name (typo in original SP column)
 };
 // Possible comment column internal names to probe (tried in order)
 const COMMENT_FIELDS = [
-  'Comment',   // confirmed from console detection
+  'Commetns',  // confirmed internal name (misspelled at creation time)
+  'Comment',
   'Comments',
   'Comments0',
-  'Yesterdays_x0020_Comments',
-  'YesterdaysComments',
-  'DailyComments',
 ];
 
 const REFRESH_MS = 2 * 60 * 1000;
@@ -971,17 +969,18 @@ async function fetchProduction(token, projectTitle) {
 }
 
 // ── FETCH: Daily Comments ─────────────────────────────────
-let _detectedCommentField = null;
+let _detectedCommentField = 'Commetns'; // confirmed internal name (typo at SP column creation)
 
 async function fetchComments(token, projectTitle) {
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() - 2);
 
-  // Fetch without $select restriction so we get ALL columns back
-  // Filter by Title (machine name = Y171) to keep the result set small
+  // Use confirmed internal field name — Commetns (original typo in SP column)
   const urlStar = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-    + `?$filter=${PROD.date} ge datetime'${cutoff.toISOString()}' and Title eq '${MACHINE}'`
-    + `&$top=200&$orderby=${PROD.date} desc&$expand=${PROD.project}`;
+    + `?$select=Id,${PROD.date},${PROD.project}/Title,${PROD.jobName},Commetns`
+    + `&$expand=${PROD.project}`
+    + `&$filter=${PROD.date} ge datetime'${cutoff.toISOString()}'`
+    + `&$top=200&$orderby=${PROD.date} desc`;
 
   try {
     const r = await fetchSP(urlStar, token, 15000);
