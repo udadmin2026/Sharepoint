@@ -1878,6 +1878,17 @@ async function loadData() {
           if (!_woDetails[mid]) _woDetails[mid] = [];
           _woDetails[mid].push(d);
         });
+
+        // Debug: log index keys vs WO Ids to find mismatch
+        const detKeys  = Object.keys(_woDetails).map(Number).sort(function(a,b){return a-b;});
+        const woIds    = wos.map(function(w){ return w.Id; }).sort(function(a,b){return a-b;});
+        const woWOIDs  = wos.map(function(w){ return w[WO.woId]; });
+        console.log('[Y171] WOD index keys (MasterID):', detKeys.slice(0,10));
+        console.log('[Y171] WO SharePoint Ids:', woIds.slice(0,10));
+        console.log('[Y171] WO WOID text values:', woWOIDs.slice(0,10));
+        const matched = woIds.filter(function(id){ return _woDetails[id] && _woDetails[id].length > 0; });
+        console.log('[Y171] WOs with matching details:', matched.length, 'of', wos.length);
+
         renderWorkOrders();
       });
     }).catch(function(e) {
