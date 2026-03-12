@@ -415,12 +415,12 @@ const PROD = {
 };
 // Possible comment column internal names to probe (tried in order)
 const COMMENT_FIELDS = [
-  'Comments',  // confirmed internal name from SharePoint list view
-  'Comment',
+  'Comment',   // confirmed from console detection
+  'Comments',
+  'Comments0',
   'Yesterdays_x0020_Comments',
   'YesterdaysComments',
   'DailyComments',
-  'Daily_x0020_Comments',
 ];
 
 const REFRESH_MS = 2 * 60 * 1000;
@@ -947,10 +947,8 @@ async function fetchProduction(token, projectTitle) {
   cutoff.setMonth(cutoff.getMonth() - 2);
   const cutoffISO = cutoff.toISOString();
 
-  // Build select including Comments field plus fallback candidates
-  const commentSelects = 'Comments,' + COMMENT_FIELDS.slice(1).join(',');
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title,${commentSelects}`
+            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`
             + `&$expand=${PROD.project}`
             + `&$filter=${PROD.date} ge datetime'${cutoffISO}'`
             + `&$top=2000`
