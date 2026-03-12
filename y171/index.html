@@ -1052,7 +1052,7 @@ async function fetchWorkOrders(token) {
   const coreFields = [WO.title,WO.customer,WO.status,WO.priority,WO.urgency,
     WO.details,WO.assignedTo,WO.dateReq,WO.startDate,WO.dateComplete,
     WO.estHours,WO.hoursTotal,WO.invoiceTotal,WO.woId,WO.woTypecat];
-  const optFields  = [WO.hardEndDate, WO.equipType, WO.nextOwner]; // may not exist — tried separately
+  const optFields  = []; // extra fields removed — caused 400; add back once field names confirmed via probe
   const filter = encodeURIComponent("Customer eq '" + MACHINE + "'");
   const base = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_LIST) + "')/items";
 
@@ -1067,7 +1067,9 @@ async function fetchWorkOrders(token) {
     const results = data?.d?.results ?? [];
     if (results.length > 0 && !window._woProbeDone) {
       window._woProbeDone = true;
-      console.log('[Y171] WO fields available:', Object.keys(results[0]).filter(k => !k.startsWith('__') && !k.startsWith('odata')).sort().join(', '));
+      const woKeys = Object.keys(results[0]).filter(k => !k.startsWith('__') && !k.startsWith('odata') && !k.startsWith('File')).sort();
+      console.log('[Y171] WO fields available:', woKeys.join(', '));
+      console.log('[Y171] WO sample HardEnd/Equip/NextOwner:', results[0]['HardEndDate'], results[0]['EquipType'], results[0]['NextOwner']);
     }
     return results;
   }
@@ -1905,6 +1907,7 @@ async function loadData() {
         const allProd = await fetchAllProduction(token);
 
         // Find the project name used in production entries by trying to match
+        statusMsg('Production loaded ✓');
         const jobName = findJobName(allProd, activeItem);
         const filtered = allProd.filter(entry => matchesProject(entry, activeItem));
 
@@ -1922,7 +1925,11 @@ async function loadData() {
           renderCharts(allProd, projectMultipliers);
           fetchComments(token, '').then(commentMap => {
             renderDailyLog(allProd, 'All Entries', commentMap);
-          }).catch(() => renderDailyLog(allProd, 'All Entries', {}));
+            statusMsg('Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));
+          }).catch(() => {
+            renderDailyLog(allProd, 'All Entries', {});
+            statusMsg('Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));
+          });
         } else {
           const stats = aggregateTons(filtered, projectMultipliers);
           renderStats(stats, jobName || activeItem.Title || '', contractedTons, activeItem);
@@ -1930,10 +1937,16 @@ async function loadData() {
           // Fetch comments separately (different $select to avoid field name issues)
           fetchComments(token, jobName || activeItem.Title || '').then(commentMap => {
             renderDailyLog(filtered, jobName || activeItem.Title || '', commentMap);
-          }).catch(() => renderDailyLog(filtered, jobName || activeItem.Title || '', {}));
+            statusMsg('Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));
+          }).catch(() => {
+            renderDailyLog(filtered, jobName || activeItem.Title || '', {});
+            statusMsg('Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));
+          });
         }
       } catch(prodErr) {
+        console.warn('[Y171] Production error:', prodErr.message);
         document.getElementById('prodBody').innerHTML = `<div class="production-error">⚠ Production data error: ${prodErr.message}</div>`;
+        statusMsg('Production error — see console');
       }
     } else {
       document.getElementById('prodBody').innerHTML = `<div class="production-state">No active project — production stats unavailable</div>`;
@@ -1956,21 +1969,24 @@ async function fetchAllProduction(token) {
 
   const allResults = [];
   let pageCount = 0;
-  const MAX_PAGES = 20; // safety cap — 20 × 5000 = 100,000 entries max
+  const MAX_PAGES = 4; // 4 × 5000 = 20,000 entries max — well beyond any real dataset
 
   while (url && pageCount < MAX_PAGES) {
-    statusMsg('Loading production p.' + (pageCount+1) + '…');
+    if (pageCount > 0) statusMsg('Loading production p.' + (pageCount+1) + '…');
     const r = await fetchSP(url, token, 30000);
     if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} — ${e.slice(0,200)}`); }
     const data = await r.json();
     const results = data?.d?.results ?? [];
     allResults.push(...results);
 
-    // SharePoint returns __next link when more pages exist
     url = data?.d?.__next || null;
     pageCount++;
+
+    // If we got fewer than top limit, we're done — no need to follow __next
+    if (results.length < 5000) break;
   }
 
+  console.log('[Y171] Production loaded:', allResults.length, 'entries in', pageCount, 'page(s)');
   return allResults;
 }
 
