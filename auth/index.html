@@ -38,73 +38,87 @@ const CLIENT   = '69affe29-c1bc-4e7a-89f6-583211c1d3f2';
 const TENANT   = 'f0c675e2-30ad-41ca-9424-b4eac122977b';
 const REDIRECT = 'https://udadmin2026.github.io/Sharepoint/auth/';
 const SCOPES   = ['https://jddredging.sharepoint.com/AllSites.Read'];
-const TOKEN_KEY = 'ud_sp_token'; // simple key the widget reads directly
 
 const params   = new URLSearchParams(window.location.search);
 const returnTo = params.get('returnTo')
   || localStorage.getItem('ud_auth_returnTo')
   || 'https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx';
 
+// Which widget page sent us here (so we can pass token back via hash)
+const widgetUrl = params.get('widget')
+  || localStorage.getItem('ud_auth_widget')
+  || 'https://udadmin2026.github.io/Sharepoint/y171/';
+
 const cfg = {
   auth: { clientId: CLIENT, authority: 'https://login.microsoftonline.com/' + TENANT, redirectUri: REDIRECT },
   cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
 };
 
-// Store token in a simple localStorage key so ALL widgets can read it directly
-// without needing MSAL or complex cache key parsing
-function storeSimpleToken(accessToken, expiresOn) {
-  const expiry = expiresOn
-    ? (typeof expiresOn === 'number' ? expiresOn : new Date(expiresOn).getTime())
-    : (Date.now() + 3600 * 1000); // default 1hr
-  localStorage.setItem(TOKEN_KEY, JSON.stringify({
-    token: accessToken,
-    expiry: expiry
-  }));
-}
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
-function showSuccess() {
+// After getting a token, redirect to the WIDGET URL with token in the hash.
+// The widget reads the hash, stores token in its own sessionStorage, then
+// navigates window.top to the SharePoint page. All same-origin — no cross-origin
+// localStorage blocking.
+function deliverToken(accessToken, expiresOn) {
+  const expiry = expiresOn
+    ? new Date(expiresOn).getTime()
+    : Date.now() + 3600000;
+
   document.getElementById('spinner').style.display = 'none';
-  document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in! Returning to SharePoint…';
+  document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in! Loading…';
+
   localStorage.removeItem('ud_auth_returnTo');
-  setTimeout(() => { window.location.href = returnTo; }, 1000);
+  localStorage.removeItem('ud_auth_widget');
+
+  // Encode token + expiry + returnTo into the widget URL hash
+  const payload = encodeURIComponent(JSON.stringify({
+    token: accessToken,
+    expiry: expiry,
+    returnTo: returnTo
+  }));
+
+  // Redirect TOP frame to widget URL with token in hash
+  // Widget reads hash, stores to its own sessionStorage, then sends top to SP page
+  setTimeout(() => {
+    window.location.href = widgetUrl + '#sptoken=' + payload;
+  }, 800);
 }
 
 async function run() {
   const app = new window.msal.PublicClientApplication(cfg);
   await app.initialize();
 
-  // Handle redirect response from Microsoft login
+  // Handle redirect from Microsoft
   try {
     const result = await app.handleRedirectPromise();
     if (result && result.accessToken) {
-      storeSimpleToken(result.accessToken, result.expiresOn);
-      showSuccess();
+      deliverToken(result.accessToken, result.expiresOn);
       return;
     }
   } catch(e) { console.warn('handleRedirectPromise:', e.message); }
 
-  // Try silent with existing cached account
+  // Try silent with cached account
   const accounts = app.getAllAccounts();
   if (accounts.length > 0) {
     try {
       const r = await app.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
-      storeSimpleToken(r.accessToken, r.expiresOn);
-      showSuccess();
+      deliverToken(r.accessToken, r.expiresOn);
       return;
     } catch(e) {}
   }
 
-  // Try ssoSilent (top-level page so this works fine here)
+  // Try ssoSilent (works top-level)
   try {
+    setStatus('Checking Microsoft session…');
     const r = await app.ssoSilent({ scopes: SCOPES });
-    storeSimpleToken(r.accessToken, r.expiresOn);
-    showSuccess();
+    deliverToken(r.accessToken, r.expiresOn);
     return;
   } catch(e) {}
 
   // Need interactive login
   document.getElementById('spinner').style.display = 'none';
-  document.getElementById('status').textContent = 'Sign in with your Microsoft account to access Project Status data.';
+  setStatus('Sign in with your Microsoft account to access live project data.');
   const btn = document.getElementById('signInBtn');
   btn.style.display = 'block';
   btn.addEventListener('click', () => {
@@ -112,6 +126,7 @@ async function run() {
     btn.textContent = 'Redirecting to Microsoft…';
     document.getElementById('spinner').style.display = 'block';
     localStorage.setItem('ud_auth_returnTo', returnTo);
+    localStorage.setItem('ud_auth_widget', widgetUrl);
     app.loginRedirect({ scopes: SCOPES });
   });
 }
