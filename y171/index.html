@@ -589,7 +589,7 @@ const WOD = {
 };
 // WO Status display order + colors
 // Active statuses (expanded by default) — others collapsed
-const WO_STATUS_ACTIVE = new Set(['New','In Progress','Received','At Vendor','On Hold']);
+const WO_STATUS_ACTIVE = new Set([]); // all collapsed by default — user expands as needed
 const WO_STATUSES = [
   { key: 'New',         color: '#DA0039' },
   { key: 'In Progress', color: '#FFAB00' },
@@ -1084,29 +1084,47 @@ function fmtCurrency(v) {
 function renderWOGroup(statusKey, color, wos, groupId, isOpen) {
   let h = '';
   h += '<div class="wo-status-group">';
-  h += '<div class="wo-status-header" onclick="toggleWOGroup(\'' + groupId + '\')">';
+  h += '<div class="wo-status-header" onclick="toggleWOGroup(\'' + groupId + '\')">'; 
   h += '<div class="wo-status-dot" style="background:' + color + '"></div>';
   h += '<div class="wo-status-name" style="color:' + color + '">' + statusKey + '</div>';
   h += '<div class="wo-status-count">' + wos.length + ' order' + (wos.length !== 1 ? 's' : '') + '</div>';
-  h += '<div class="wo-status-chevron' + (isOpen ? ' open' : '') + '" id="chev_' + groupId + '">▶</div>';
+  h += '<div class="wo-status-chevron' + (isOpen ? ' open' : '') + '" id="chev_' + groupId + '">&#x25b6;</div>';
   h += '</div>';
   h += '<div class="wo-list' + (isOpen ? ' open' : '') + '" id="' + groupId + '">';
   wos.forEach(function(wo) {
-    const woNum   = wo[WO.woId] || ('#' + wo.Id);
-    const title   = wo[WO.title] || '(no title)';
-    const pri     = wo[WO.priority] || '';
-    const priClr  = priorityColor(pri);
-    const dateStr = fmtDate(wo[WO.dateReq]);
-    const hrs     = parseFloat(wo[WO.hoursTotal]) || 0;
-    const meta    = (hrs > 0 ? hrs.toFixed(1) + 'h' : '') + (dateStr !== '—' ? (hrs > 0 ? ' · ' : '') + dateStr : '');
+    const woNum    = wo[WO.woId] || ('#' + wo.Id);
+    const title    = wo[WO.title] || '(no title)';
+    const pri      = wo[WO.priority] || '';
+    const urgency  = wo[WO.urgency] || '';
+    const priClr   = priorityColor(pri);
+    const typecat  = wo[WO.woTypecat] || '';
+    const assigned = (function(){ const a=wo[WO.assignedTo]; return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
+    const dateStart = fmtDate(wo[WO.startDate]);
+    const dateReq  = fmtDate(wo[WO.dateReq]);
+    const estHrs   = parseFloat(wo[WO.estHours]) || 0;
+    const actHrs   = parseFloat(wo[WO.hoursTotal]) || 0;
+    const detailCount = (_woDetails[wo.Id] || []).length;
     const isSelected = _woSelected === wo.Id;
     h += '<div class="wo-row' + (isSelected ? ' selected' : '') + '" onclick="selectWO(' + wo.Id + ')">';
+    h += '<div style="text-align:center">';
     h += '<div class="wo-row-id">' + woNum + '</div>';
+    if (typecat) h += '<div style="font-size:9px;color:var(--muted);margin-top:2px;white-space:nowrap">' + typecat + '</div>';
+    h += '</div>';
     h += '<div style="min-width:0">';
     h += '<div class="wo-row-title">' + title + '</div>';
-    if (pri) h += '<span class="wo-priority-pill" style="background:' + priClr + ';color:' + (pri==='Low'||pri==='Normal'?'var(--muted)':'#fff') + '">' + pri + '</span>';
+    h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px;align-items:center">';
+    if (pri)      h += '<span class="wo-priority-pill" style="background:' + priClr + ';color:' + (pri==='Low'||pri==='Normal'?'var(--muted)':'#fff') + '">' + pri + '</span>';
+    if (urgency)  h += '<span class="wo-priority-pill" style="background:rgba(255,255,255,0.08);color:var(--muted)">' + urgency + '</span>';
+    if (assigned) h += '<span style="font-size:10px;color:var(--muted)">' + assigned + '</span>';
     h += '</div>';
-    h += '<div class="wo-row-meta">' + meta + '</div>';
+    h += '</div>';
+    h += '<div class="wo-row-meta" style="white-space:nowrap">';
+    const showDate = dateStart !== '—' ? dateStart : (dateReq !== '—' ? dateReq : '');
+    if (showDate) h += '<div>' + showDate + '</div>';
+    if (estHrs > 0) h += '<div>' + estHrs + 'h est</div>';
+    if (actHrs > 0) h += '<div style="color:var(--green)">' + actHrs.toFixed(1) + 'h actual</div>';
+    if (detailCount > 0) h += '<div style="color:var(--muted)">' + detailCount + ' entr' + (detailCount===1?'y':'ies') + '</div>';
+    h += '</div>';
     h += '</div>';
     if (isSelected) h += renderWODetailPanel(wo);
   });
@@ -1167,25 +1185,36 @@ function renderWorkOrders() {
 function renderWODetailPanel(wo) {
   const details = _woDetails[wo.Id] || [];
   let h = '<div class="wo-detail-panel">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+
+  // Header with close button
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+  h += '<div>';
   h += '<div class="wo-detail-title" style="margin:0">' + (wo[WO.title] || '') + '</div>';
-  h += '<button onclick="event.stopPropagation();selectWO(' + wo.Id + ')" style="background:var(--card-border);border:none;color:var(--muted);border-radius:6px;width:22px;height:22px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0" title="Close">✕</button>';
+  const woIdStr = wo[WO.woId] ? '<span style="font-size:10px;color:var(--muted);margin-left:8px">' + wo[WO.woId] + '</span>' : '';
+  h += woIdStr;
+  h += '</div>';
+  h += '<button onclick="event.stopPropagation();selectWO(' + wo.Id + ')" style="background:var(--card-border);border:none;color:var(--muted);border-radius:6px;width:22px;height:22px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0" title="Close">\u2715</button>';
   h += '</div>';
 
-  // Key fields grid
-  h += '<div class="wo-detail-grid">';
+  // Key fields — 3-column grid
+  h += '<div class="wo-detail-grid" style="grid-template-columns:1fr 1fr 1fr">';
+  const assigned = (function(){ const a=wo[WO.assignedTo]; return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
   const fields = [
-    ['Type',       wo[WO.woTypecat]],
-    ['Urgency',    wo[WO.urgency]],
-    ['Start',      fmtDate(wo[WO.startDate])],
-    ['Est. Hrs',   wo[WO.estHours] ? wo[WO.estHours] + ' hrs' : '—'],
-    ['Completed',  fmtDate(wo[WO.dateComplete])],
-    ['Actual Hrs', wo[WO.hoursTotal] ? parseFloat(wo[WO.hoursTotal]).toFixed(1) + ' hrs' : '—'],
-    ['Invoice',    fmtCurrency(wo[WO.invoiceTotal])],
-    ['Assigned',   (function(){ const a=wo[WO.assignedTo]; return Array.isArray(a?.results) ? a.results.join(', ') : (a||'—'); })()],
+    ['WO Type',       wo[WO.woTypecat]],
+    ['Priority',      wo[WO.priority]],
+    ['Urgency',       wo[WO.urgency]],
+    ['Requested',     fmtDate(wo[WO.dateReq])],
+    ['Start Date',    fmtDate(wo[WO.startDate])],
+    ['Est. Complete', fmtDate(wo[WO.estHours] ? null : null)],  // placeholder
+    ['Est. Hours',    wo[WO.estHours] ? String(wo[WO.estHours]) + ' hrs' : null],
+    ['Actual Hours',  wo[WO.hoursTotal] ? parseFloat(wo[WO.hoursTotal]).toFixed(1) + ' hrs' : null],
+    ['Completed',     fmtDate(wo[WO.dateComplete])],
+    ['Assigned To',   assigned || null],
+    ['Materials',     wo[WO.invoiceTotal] ? fmtCurrency(wo[WO.invoiceTotal]) : null],
+    ['Invoice Total', wo[WO.invoiceTotal] ? fmtCurrency(wo[WO.invoiceTotal]) : null],
   ];
   fields.forEach(function(f) {
-    if (!f[1] || f[1]==='—') return;
+    if (!f[1] || f[1] === '\u2014') return;
     h += '<div class="wo-detail-field">';
     h += '<div class="wo-detail-label">' + f[0] + '</div>';
     h += '<div class="wo-detail-value">' + f[1] + '</div>';
@@ -1193,28 +1222,46 @@ function renderWODetailPanel(wo) {
   });
   h += '</div>';
 
-  // Request details / notes
-  const notes = wo[WO.details] || '';
-  if (notes) h += '<div class="wo-detail-notes">' + notes.replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
+  // Request notes
+  const notes = (wo[WO.details] || '').trim();
+  if (notes) {
+    h += '<div class="wo-detail-label" style="margin:8px 0 4px">Request Details</div>';
+    h += '<div class="wo-detail-notes">' + notes.replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
+  }
 
-  // Detail line items
+  // Work detail entries
+  h += '<div class="wo-detail-section-hdr">Work Detail Entries (' + details.length + ')</div>';
   if (details.length > 0) {
-    h += '<div class="wo-detail-section-hdr">Work Detail Entries (' + details.length + ')</div>';
-    h += '<div class="wo-detail-row-hdr"><div>Type</div><div>Time</div><div>Comment</div><div style="text-align:right">Total</div></div>';
+    h += '<div class="wo-detail-row-hdr"><div>Type of Service</div><div>Time / Date</div><div>Comment</div><div style="text-align:right">Cost</div></div>';
     details.forEach(function(d) {
-      const svc     = d[WOD.typeOfSvc] || '—';
-      const spent   = d[WOD.timeSpent] || '—';
-      const comment = (d[WOD.comments] || '').trim();
-      const total   = parseFloat(d[WOD.hourlyTotal]) || parseFloat(d[WOD.materialTotal]) || 0;
+      const svc      = d[WOD.typeOfSvc] || '\u2014';
+      const spent    = d[WOD.timeSpent] || '';
+      const dtEntered = fmtDate(d[WOD.timeStart] || d['DateTimeEntered']);
+      const timeStr  = [spent, dtEntered].filter(function(x){return x && x !== '\u2014';}).join(' \u00b7 ');
+      const comment  = (d[WOD.comments] || '').trim();
+      const hTotal   = parseFloat(d[WOD.hourlyTotal]) || 0;
+      const mTotal   = parseFloat(d[WOD.materialTotal]) || 0;
+      const cost     = hTotal + mTotal;
+      const hRate    = parseFloat(d[WOD.hourlyRate]) || 0;
       h += '<div class="wo-detail-row">';
-      h += '<div>' + svc + '</div>';
-      h += '<div>' + spent + '</div>';
-      h += '<div>' + (comment || '—') + '</div>';
-      h += '<div style="text-align:right">' + (total > 0 ? fmtCurrency(total) : '—') + '</div>';
+      h += '<div>' + svc + (hRate > 0 ? '<br><span style="font-size:9px;color:var(--muted)">$' + hRate + '/hr</span>' : '') + '</div>';
+      h += '<div>' + (timeStr || '\u2014') + '</div>';
+      h += '<div class="wo-detail-comment">' + (comment || '\u2014') + '</div>';
+      h += '<div style="text-align:right">' + (cost > 0 ? fmtCurrency(cost) : '\u2014') + '</div>';
       h += '</div>';
     });
+    // Totals row
+    const totalHrs = details.reduce(function(s,d){ return s + (parseFloat(d[WOD.hourlyTotal])||0); }, 0);
+    const totalMat = details.reduce(function(s,d){ return s + (parseFloat(d[WOD.materialTotal])||0); }, 0);
+    const grandTotal = totalHrs + totalMat;
+    if (grandTotal > 0) {
+      h += '<div style="display:flex;justify-content:flex-end;padding:8px 8px 2px;font-size:11px;font-weight:700;color:var(--text);gap:16px">';
+      if (totalHrs > 0) h += '<span>Labor: ' + fmtCurrency(totalHrs) + '</span>';
+      if (totalMat > 0) h += '<span>Materials: ' + fmtCurrency(totalMat) + '</span>';
+      h += '<span style="color:var(--green)">Total: ' + fmtCurrency(grandTotal) + '</span>';
+      h += '</div>';
+    }
   } else {
-    h += '<div class="wo-detail-section-hdr">Work Detail Entries</div>';
     h += '<div class="wo-empty">No detail entries on record</div>';
   }
 
