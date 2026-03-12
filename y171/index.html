@@ -979,46 +979,49 @@ async function fetchComments(token, projectTitle) {
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() - 2);
 
-  // Use $select=* to get all fields — avoids needing the exact internal name
-  // Limit to 200 entries to keep it fast (comments only, not the full production dataset)
-  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-    + `?$select=Id,${PROD.date},${PROD.project}/Title,${PROD.jobName}`
-    + `&$expand=${PROD.project}`
-    + `&$filter=${PROD.date} ge datetime'${cutoff.toISOString()}'`
-    + `&$top=200&$orderby=${PROD.date} desc`;
-
-  // Fetch without comment field first to get IDs, then use $select=* on individual items
-  // Actually — just fetch with $select=* directly, SP REST ignores unknown $select values
+  // Fetch without $select restriction so we get ALL columns back
+  // Filter by Title (machine name = Y171) to keep the result set small
   const urlStar = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-    + `?$filter=${PROD.date} ge datetime'${cutoff.toISOString()}'`
+    + `?$filter=${PROD.date} ge datetime'${cutoff.toISOString()}' and Title eq '${MACHINE}'`
     + `&$top=200&$orderby=${PROD.date} desc&$expand=${PROD.project}`;
 
   try {
     const r = await fetchSP(urlStar, token, 15000);
-    if (!r.ok) {
-      console.warn('[Y171] fetchComments HTTP', r.status);
-      return {};
-    }
+    if (!r.ok) { console.warn('[Y171] fetchComments HTTP', r.status); return {}; }
     const items = (await r.json())?.d?.results ?? [];
+    console.log('[Y171] Comment fetch got', items.length, 'items for machine', MACHINE);
     if (items.length === 0) return {};
 
-    // Auto-detect comment field on first successful fetch
+    // Log all fields on first item for debugging
     if (!_detectedCommentField) {
-      const allKeys = Object.keys(items[0]).filter(k =>
-        !k.startsWith('odata') && !k.startsWith('__') &&
-        !['Id','ID','Title','Date','Modified','Created','GUID','FileRef',
-          'FileDirRef','FileLeafRef','UniqueId','ServerRedirectedEmbedUri'].includes(k)
-      );
-      console.log('[Y171] Comment probe fields:', allKeys.join(', '));
+      const skip = new Set(['odata','__metadata','ID','Id','GUID','Title','Date','Modified',
+        'Created','FileRef','FileDirRef','FileLeafRef','UniqueId','FileSystemObjectType',
+        'ServerRedirectedEmbedUri','ServerRedirectedEmbedUrl','ContentTypeId','ComplianceAssetId',
+        'Attachments','AuthorId','EditorId','OData__UIVersionString','ItemChildCount',
+        'FolderChildCount','AppAuthorId','AppEditorId']);
+      const allKeys = Object.keys(items[0]).filter(k => {
+        if (skip.has(k)) return false;
+        const lk = k.toLowerCase();
+        return !lk.startsWith('odata') && !lk.startsWith('_') && !lk.includes('lookupid');
+      });
+      console.log('[Y171] Non-system fields:', allKeys.join(', '));
+
+      // Log the value of every field on first 3 items
       for (const key of allKeys) {
+        const vals = items.slice(0, 3).map(i => i[key]).filter(v => v != null && v !== '');
+        if (vals.length > 0) console.log('[Y171]', key, ':', JSON.stringify(vals[0]).slice(0,100));
+      }
+
+      // Detect comment field: long string, not a number, not a known production field
+      const prodFields = new Set([PROD.buckets, PROD.yardsPerBkt, PROD.tonsPerYard,
+        PROD.actualTons, PROD.jobName, 'YarderCycles','Yarder_x0020_Cycles',
+        'MechanicHours','Mechanic_x0020_Hours','YarderHours','Yarder_x0020_Hours']);
+      for (const key of allKeys) {
+        if (prodFields.has(key)) continue;
         for (const item of items) {
           const v = item[key];
-          if (typeof v === 'string' && v.length > 15 && isNaN(Number(v))
-              && !key.toLowerCase().includes('url')
-              && !key.toLowerCase().includes('name')
-              && !key.toLowerCase().includes('author')
-              && !key.toLowerCase().includes('editor')) {
-            console.log('[Y171] Comment field:', key, '→', v.slice(0, 80));
+          if (typeof v === 'string' && v.trim().length > 10) {
+            console.log('[Y171] Comment field detected:', key, '=', v.slice(0,80));
             _detectedCommentField = key;
             break;
           }
@@ -1027,29 +1030,25 @@ async function fetchComments(token, projectTitle) {
       }
     }
 
-    if (!_detectedCommentField) {
-      console.warn('[Y171] No comment field found');
-      return {};
-    }
+    if (!_detectedCommentField) { console.warn('[Y171] No comment field found'); return {}; }
 
-    // Build date → comment map filtered to this project
+    // Build date → comment map
     const map = {};
     for (const item of items) {
-      const projTitle = (item[PROD.project]?.Title || item[PROD.jobName] || '').trim();
-      if (projectTitle && projTitle !== projectTitle) continue;
       const dateKey = (item[PROD.date] || '').slice(0, 10);
       const comment = (item[_detectedCommentField] || '').trim();
       if (dateKey && comment) {
         map[dateKey] = map[dateKey] ? map[dateKey] + '\n\n' + comment : comment;
       }
     }
-    console.log('[Y171] Comment map built:', Object.keys(map).length, 'dates');
+    console.log('[Y171] Comment map:', Object.keys(map).length, 'dates with comments');
     return map;
   } catch(e) {
     console.warn('[Y171] fetchComments error:', e.message);
     return {};
   }
 }
+
 
 // ── CALC: Tonnage per entry ────────────────────────────────
 // projectMultipliers: { bucketSize, tonsPerYd, tonsBucket } from Project List item
