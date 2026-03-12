@@ -1883,6 +1883,14 @@ async function loadData() {
 
         const matched = wos.filter(function(w){ const k = String(w[WO.woId]); return _woDetails[k] && _woDetails[k].length > 0; });
         console.log('[Y171] WOs with matching details:', matched.length, 'of', wos.length, '— index by WOID');
+        // Log a sample WO and its WOID key vs what's in the index
+        const sample = wos.find(function(w){ return String(w[WO.woId]) === '2150'; });
+        if (sample) {
+          const key = String(sample[WO.woId]);
+          console.log('[Y171] WO 2150 lookup — WOID field:', JSON.stringify(sample[WO.woId]), '| key:', key, '| details found:', JSON.stringify(_woDetails[key]));
+        }
+        const detSample = dets.slice(0,3).map(function(d){ return {mid: d[WOD.masterId], midType: typeof d[WOD.masterId], midStr: String(d[WOD.masterId])}; });
+        console.log('[Y171] WOD MasterID samples:', JSON.stringify(detSample));
 
         renderWorkOrders();
       });
