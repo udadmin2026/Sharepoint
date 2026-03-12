@@ -817,52 +817,58 @@ function getAccountFromStorage() {
 }
 
 async function getToken() {
-  // Init MSAL once — no handleRedirectPromise, no ssoSilent
-  if (!msalApp) {
-    msalApp = new msal.PublicClientApplication(msalConfig);
-    await msalApp.initialize();
-    // Brief pause — lets MSAL finish processing any cached state from a
-    // just-completed auth redirect before we call getAllAccounts()
-    await new Promise(r => setTimeout(r, 300));
-  }
-
-  // Try MSAL's getAllAccounts first
-  let accounts = msalApp.getAllAccounts();
-  statusMsg('Auth: MSAL accounts=' + accounts.length);
-
-  // If MSAL missed them, read directly from localStorage
-  if (accounts.length === 0) {
-    const rawAccount = getAccountFromStorage();
-    if (rawAccount) {
-      statusMsg('Auth: found account in localStorage — ' + rawAccount.username);
-      try { msalApp.setActiveAccount(rawAccount); accounts = [rawAccount]; }
-      catch(e) { console.warn('[Y171] setActiveAccount failed:', e.message); }
+  // ── Tier 1: Simple token key written by auth page ────────
+  // Auth page stores { token, expiry } under 'ud_sp_token' after every login.
+  // This works across InPrivate, mobile app, any browser — no MSAL needed here.
+  try {
+    const raw = localStorage.getItem('ud_sp_token');
+    if (raw) {
+      const { token, expiry } = JSON.parse(raw);
+      if (token && expiry > Date.now() + 60000) {
+        statusMsg('Token from cache ✓');
+        return token;
+      }
+      // Token expired — will refresh via MSAL below then re-store
+      statusMsg('Token expired, refreshing…');
     }
-  }
+  } catch(e) {}
 
-  for (const account of accounts) {
-    try {
-      statusMsg('Auth: silent token for ' + (account.username || account.localAccountId) + '…');
-      const result = await msalApp.acquireTokenSilent({ scopes: TOKEN_SCOPE, account });
-      statusMsg('Token OK ✓');
-      return result.accessToken;
-    } catch(e) {
-      statusMsg('Silent failed: ' + e.message.slice(0, 50));
-      console.warn('[Y171] acquireTokenSilent:', e);
+  // ── Tier 2: MSAL acquireTokenSilent ─────────────────────
+  // Refresh an expired token without user interaction
+  try {
+    if (!msalApp) {
+      msalApp = new msal.PublicClientApplication(msalConfig);
+      await msalApp.initialize();
+      await new Promise(r => setTimeout(r, 200));
     }
-  }
+    let accounts = msalApp.getAllAccounts();
+    if (accounts.length === 0) {
+      const raw = getAccountFromStorage();
+      if (raw) { try { msalApp.setActiveAccount(raw); accounts = [raw]; } catch(e) {} }
+    }
+    statusMsg('Auth: ' + accounts.length + ' MSAL account(s)…');
+    for (const account of accounts) {
+      try {
+        const r = await msalApp.acquireTokenSilent({ scopes: TOKEN_SCOPE, account });
+        // Re-store the refreshed token
+        localStorage.setItem('ud_sp_token', JSON.stringify({
+          token: r.accessToken,
+          expiry: r.expiresOn ? new Date(r.expiresOn).getTime() : Date.now() + 3600000
+        }));
+        statusMsg('Token refreshed ✓');
+        return r.accessToken;
+      } catch(e) { console.warn('[Y171] acquireTokenSilent:', e.message); }
+    }
+  } catch(e) { console.warn('[Y171] MSAL init failed:', e.message); }
 
-  // No token found — redirect to auth page, but guard against redirect loops.
-  // If we just came back from auth (sessionStorage flag set), show error instead of looping.
+  // ── Tier 3: Need interactive sign-in ────────────────────
   const loopGuard = sessionStorage.getItem('y171_auth_attempted');
   if (loopGuard) {
     sessionStorage.removeItem('y171_auth_attempted');
-    statusMsg('Auth failed after sign-in — token not found');
-    showError('Sign-in completed but token was not found. Please refresh the page.');
+    showError('Sign-in completed but token not found. Please refresh the page.');
     return null;
   }
-
-  statusMsg('No session — opening sign-in…');
+  statusMsg('No session — sign in required…');
   sessionStorage.setItem('y171_auth_attempted', '1');
   setTimeout(showSignIn, 800);
   return null;
