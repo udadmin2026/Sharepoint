@@ -1083,7 +1083,7 @@ async function fetchWODetails(token) {
   // WOD.title (Title) = the person who did the work (per app data)
   // No Author expand needed — Title holds the name
   const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_DET_LIST) + "')/items"
-    + "?$select=" + select + "&$top=2000&$orderby=" + WOD.masterId + " asc";
+    + "?$select=" + select + "&$top=2000";
   const r = await fetchSP(url, token, 20000);
   if (!r.ok) { console.warn('[Y171] WOD fetch HTTP', r.status); return []; }
   const results = (await r.json())?.d?.results ?? [];
@@ -1875,7 +1875,10 @@ async function loadData() {
         // Index by string version of MasterID to match WO.woId
         _woDetails = {};
         dets.forEach(function(d) {
-          const mid = String(parseInt(d[WOD.masterId]));
+          // MasterID may be a Number, a Lookup {Id,Title}, or a plain string
+          const raw = d[WOD.masterId];
+          const num = (raw !== null && typeof raw === 'object') ? (raw.Id || raw) : raw;
+          const mid = String(parseInt(num));
           if (!mid || mid === 'NaN') return;
           if (!_woDetails[mid]) _woDetails[mid] = [];
           _woDetails[mid].push(d);
@@ -1889,8 +1892,9 @@ async function loadData() {
           const key = String(sample[WO.woId]);
           console.log('[Y171] WO 2150 lookup — WOID field:', JSON.stringify(sample[WO.woId]), '| key:', key, '| details found:', JSON.stringify(_woDetails[key]));
         }
-        const detSample = dets.slice(0,3).map(function(d){ return {mid: d[WOD.masterId], midType: typeof d[WOD.masterId], midStr: String(d[WOD.masterId])}; });
+        const detSample = dets.slice(0,3).map(function(d){ const r=d[WOD.masterId]; const n=(r!==null&&typeof r==='object')?(r.Id||r):r; return {raw:JSON.stringify(r),parsed:parseInt(n)}; });
         console.log('[Y171] WOD MasterID samples:', JSON.stringify(detSample));
+        console.log('[Y171] _woDetails keys:', Object.keys(_woDetails).slice(0,10));
 
         renderWorkOrders();
       });
