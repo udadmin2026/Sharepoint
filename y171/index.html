@@ -1055,10 +1055,16 @@ async function fetchWorkOrders(token) {
     WO.woTypecat,WO.equipType].join(',');
   const filter = encodeURIComponent("Customer eq '" + MACHINE + "'");
   const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_LIST) + "')/items"
-    + "?$select=" + select + "&$expand=Author/Id,Author/Title&$filter=" + filter + "&$top=500&$orderby=Id desc";
+    + "?$select=" + select + ",Author/Title&$expand=Author&$filter=" + filter + "&$top=500";
   const r = await fetchSP(url, token, 20000);
   if (!r.ok) { const e = await r.text().catch(function(){return'';}); throw new Error('WO fetch HTTP ' + r.status + ' — ' + e.slice(0,200)); }
-  return (await r.json())?.d?.results ?? [];
+  const data = await r.json();
+  const results = data?.d?.results ?? [];
+  if (results.length > 0 && !window._woProbeDone) {
+    window._woProbeDone = true;
+    console.log('[Y171] WO sample fields:', Object.keys(results[0]).map(k => k + '=' + JSON.stringify(results[0][k]).slice(0,40)));
+  }
+  return results;
 }
 
 async function fetchWODetails(token) {
@@ -1067,7 +1073,7 @@ async function fetchWODetails(token) {
     WOD.materialTotal,WOD.estCost].join(',');
   // Get details for all WOs in one shot — filter to WO IDs we have
   const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_DET_LIST) + "')/items"
-    + "?$select=" + select + "&$expand=Author/Title&$top=2000&$orderby=" + WOD.masterId + " asc";
+    + "?$select=" + select + ",Author/Title&$expand=Author&$top=2000&$orderby=" + WOD.masterId + " asc";
   const r = await fetchSP(url, token, 20000);
   if (!r.ok) { console.warn('[Y171] WOD fetch HTTP', r.status); return []; }
   return (await r.json())?.d?.results ?? [];
