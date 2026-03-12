@@ -411,18 +411,16 @@ const PROD = {
   yardsPerBkt:  'YardsPerBucket_x0028_Number_x002',
   tonsPerYard:  'TonsPerYard_x0028_Number_x0029_',
   actualTons:   'AcutalTons',           // pre-calculated fallback
-  // Comments — try multiple possible internal names; widget detects which one has data
-  comments:     'Yesterdays_x0020_Comments', // fallback candidates tried at runtime
+  comments:     'Comments',              // confirmed internal name
 };
 // Possible comment column internal names to probe (tried in order)
 const COMMENT_FIELDS = [
+  'Comments',  // confirmed internal name from SharePoint list view
+  'Comment',
   'Yesterdays_x0020_Comments',
   'YesterdaysComments',
-  'Comments',
-  'Comment',
   'DailyComments',
   'Daily_x0020_Comments',
-  'Notes',
 ];
 
 const REFRESH_MS = 2 * 60 * 1000;
@@ -948,8 +946,8 @@ async function fetchProduction(token, projectTitle) {
   cutoff.setMonth(cutoff.getMonth() - 2);
   const cutoffISO = cutoff.toISOString();
 
-  // Build select including all candidate comment fields (SP ignores unknown fields gracefully)
-  const commentSelects = COMMENT_FIELDS.join(',');
+  // Build select including Comments field plus fallback candidates
+  const commentSelects = 'Comments,' + COMMENT_FIELDS.slice(1).join(',');
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
             + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title,${commentSelects}`
             + `&$expand=${PROD.project}`
