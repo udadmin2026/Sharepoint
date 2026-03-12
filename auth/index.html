@@ -38,31 +38,46 @@ const CLIENT   = '69affe29-c1bc-4e7a-89f6-583211c1d3f2';
 const TENANT   = 'f0c675e2-30ad-41ca-9424-b4eac122977b';
 const REDIRECT = 'https://udadmin2026.github.io/Sharepoint/auth/';
 const SCOPES   = ['https://jddredging.sharepoint.com/AllSites.Read'];
+const TOKEN_KEY = 'ud_sp_token'; // simple key the widget reads directly
 
-// returnTo is the SharePoint page URL we came from — we'll go back there after auth
 const params   = new URLSearchParams(window.location.search);
-const returnTo = params.get('returnTo') || 'https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx';
+const returnTo = params.get('returnTo')
+  || localStorage.getItem('ud_auth_returnTo')
+  || 'https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx';
 
 const cfg = {
   auth: { clientId: CLIENT, authority: 'https://login.microsoftonline.com/' + TENANT, redirectUri: REDIRECT },
   cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
 };
 
+// Store token in a simple localStorage key so ALL widgets can read it directly
+// without needing MSAL or complex cache key parsing
+function storeSimpleToken(accessToken, expiresOn) {
+  const expiry = expiresOn
+    ? (typeof expiresOn === 'number' ? expiresOn : new Date(expiresOn).getTime())
+    : (Date.now() + 3600 * 1000); // default 1hr
+  localStorage.setItem(TOKEN_KEY, JSON.stringify({
+    token: accessToken,
+    expiry: expiry
+  }));
+}
+
 function showSuccess() {
   document.getElementById('spinner').style.display = 'none';
   document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in! Returning to SharePoint…';
-  // Redirect back to SharePoint — full page load means MSAL finds token in localStorage
-  setTimeout(() => { window.location.href = returnTo; }, 1200);
+  localStorage.removeItem('ud_auth_returnTo');
+  setTimeout(() => { window.location.href = returnTo; }, 1000);
 }
 
 async function run() {
   const app = new window.msal.PublicClientApplication(cfg);
   await app.initialize();
 
-  // Handle redirect response — this fires when Microsoft redirects back here after login
+  // Handle redirect response from Microsoft login
   try {
     const result = await app.handleRedirectPromise();
     if (result && result.accessToken) {
+      storeSimpleToken(result.accessToken, result.expiresOn);
       showSuccess();
       return;
     }
@@ -72,41 +87,33 @@ async function run() {
   const accounts = app.getAllAccounts();
   if (accounts.length > 0) {
     try {
-      await app.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
+      const r = await app.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
+      storeSimpleToken(r.accessToken, r.expiresOn);
       showSuccess();
       return;
     } catch(e) {}
   }
 
-  // Try ssoSilent (reuse M365 session)
+  // Try ssoSilent (top-level page so this works fine here)
   try {
-    await app.ssoSilent({ scopes: SCOPES });
+    const r = await app.ssoSilent({ scopes: SCOPES });
+    storeSimpleToken(r.accessToken, r.expiresOn);
     showSuccess();
     return;
   } catch(e) {}
 
-  // Need interactive — show button
+  // Need interactive login
   document.getElementById('spinner').style.display = 'none';
   document.getElementById('status').textContent = 'Sign in with your Microsoft account to access Project Status data.';
   const btn = document.getElementById('signInBtn');
   btn.style.display = 'block';
   btn.addEventListener('click', () => {
     btn.disabled = true;
-    btn.textContent = 'Redirecting…';
+    btn.textContent = 'Redirecting to Microsoft…';
     document.getElementById('spinner').style.display = 'block';
-    // Store returnTo in localStorage so we can use it after the redirect chain completes
     localStorage.setItem('ud_auth_returnTo', returnTo);
     app.loginRedirect({ scopes: SCOPES });
   });
-
-  // After loginRedirect, Microsoft sends browser back here.
-  // handleRedirectPromise (above) catches that and calls showSuccess() → returnTo.
-  // BUT if returnTo was lost, recover it from localStorage:
-  const storedReturn = localStorage.getItem('ud_auth_returnTo');
-  if (storedReturn && storedReturn !== returnTo) {
-    // We're in the post-redirect case with a stored URL
-    // handleRedirectPromise already handled it above if token was present
-  }
 }
 
 run();
