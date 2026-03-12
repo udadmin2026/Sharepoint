@@ -331,26 +331,28 @@ const REFRESH_MS = 2 * 60 * 1000;
 let timer = null;
 let activeProjectTitle = null;
 
-// ── TOKEN SETUP ───────────────────────────────────────────
-// Token is delivered via postMessage from a popup window running the auth page.
-// Popup is same-origin (github.io) and can postMessage directly to this iframe.
-// No localStorage, no sessionStorage sharing needed.
+// ── MSAL SETUP ────────────────────────────────────────────
+const msalConfig = {
+  auth: {
+    clientId:    CLIENT_ID,
+    authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
+    redirectUri: 'https://udadmin2026.github.io/Sharepoint/auth/',
+  },
+  cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
+};
 const TOKEN_SCOPE = ['https://jddredging.sharepoint.com/AllSites.Read'];
-let msalApp  = null;
-let _token   = null;  // in-memory token for this page session
-let _expiry  = 0;
+let msalApp = null;
+let _token  = null;
+let _expiry = 0;
 
-// Listen for token posted from the auth popup
-window.addEventListener('message', function(e) {
-  if (e.origin !== 'https://udadmin2026.github.io') return;
-  if (e.data && e.data.type === 'ud_token' && e.data.token) {
-    _token  = e.data.token;
-    _expiry = e.data.expiry || (Date.now() + 3600000);
-    console.log('[Y171] Token received via postMessage ✓');
-    // Trigger data load now that we have a token
-    loadData();
+async function getMsalApp() {
+  if (!msalApp) {
+    msalApp = new msal.PublicClientApplication(msalConfig);
+    await msalApp.initialize();
+    await new Promise(r => setTimeout(r, 200));
   }
-});
+  return msalApp;
+}
 
 
 
@@ -784,150 +786,94 @@ function showError(msg) {
   statusMsg('Error');
 }
 
-function showSignIn() {
-  statusMsg('Sign in required…');
-  const returnTo = encodeURIComponent('https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx');
-  const authUrl  = 'https://udadmin2026.github.io/Sharepoint/auth/?returnTo=' + returnTo;
-  try {
-    // Try top-frame navigation (works in browser, blocked in some mobile app sandboxes)
-    if (window.top === window.self) {
-      // Already top frame — just navigate
-      window.location.href = authUrl;
-    } else {
-      window.top.location.href = authUrl;
-    }
-  } catch(e) {
-    // Mobile SP app sandbox blocks top-frame nav — open new tab instead
-    window.open(authUrl, '_blank');
-    statusMsg('Tap the sign-in tab, sign in, then return here and refresh.');
-  }
-}
-
-// Read account directly from MSAL's account.keys index in localStorage
-function getAccountFromStorage() {
-  try {
-    const accountKeys = JSON.parse(localStorage.getItem('msal.account.keys.' + CLIENT_ID) || '[]');
-    for (const key of accountKeys) {
-      const val = JSON.parse(localStorage.getItem(key) || 'null');
-      if (val && val.localAccountId) return val;
-    }
-  } catch(e) {}
-  // Fallback: scan all keys for account objects
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (!key) continue;
-    try {
-      const val = JSON.parse(localStorage.getItem(key));
-      if (val && val.authorityType && val.localAccountId && val.homeAccountId) return val;
-    } catch(e) {}
-  }
-  return null;
-}
-
 function showSignInButton() {
   const html = `<div style="text-align:center;padding:24px 16px">
-    <button onclick="signInPopup()" style="background:#DA0039;color:#fff;border:none;
+    <button id="signInBtn" onclick="signInWithPopup()" style="background:#DA0039;color:#fff;border:none;
       border-radius:8px;font-size:13px;font-weight:700;padding:10px 24px;cursor:pointer;
       display:inline-flex;align-items:center;gap:8px">
       🔐 Sign in to load live data
     </button>
   </div>`;
-  // Update card body divs
   ['act-body','mob-body','prod-body','sidebar-body'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = html;
   });
-  // Also update card-state divs which show during loading
   document.querySelectorAll('.card-state').forEach(el => { el.innerHTML = html; });
-  // Reset refresh button
   const btn = document.getElementById('refreshBtn');
   if (btn) { btn.classList.remove('loading'); btn.textContent = '↻ Refresh'; }
   statusMsg('Sign in required');
 }
 
-function signInPopup() {
-  const returnTo  = encodeURIComponent('https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx');
-  const authBase  = 'https://udadmin2026.github.io/Sharepoint/auth/';
-
-  // Mobile detection — SP mobile app blocks window.open entirely
-  const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)
-    || navigator.maxTouchPoints > 2;
-
-  if (!isMobile) {
-    // Desktop: try popup first
-    const popup = window.open(
-      authBase + '?popup=1',
-      'ud_auth',
-      'width=480,height=640,left=' + Math.round(screen.width/2 - 240) + ',top=' + Math.round(screen.height/2 - 320)
-    );
-    if (popup) return; // popup opened successfully
-  }
-
-  // Mobile or popup blocked — navigate top frame to auth, which will redirect back to SP
+async function signInWithPopup() {
+  const btn = document.getElementById('signInBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
+  statusMsg('Opening Microsoft login…');
   try {
-    window.top.location.href = authBase + '?returnTo=' + returnTo;
+    const app = await getMsalApp();
+    // loginPopup is triggered by direct user click — allowed by all browsers
+    // including mobile. Opens a small Microsoft login window, handles auth,
+    // closes itself, and returns the token directly here.
+    const result = await app.loginPopup({ scopes: TOKEN_SCOPE });
+    if (result && result.accessToken) {
+      _token  = result.accessToken;
+      _expiry = result.expiresOn ? new Date(result.expiresOn).getTime() : Date.now() + 3600000;
+      statusMsg('Signed in ✓ — loading data…');
+      loadData();
+    }
   } catch(e) {
-    window.open(authBase + '?returnTo=' + returnTo, '_blank');
+    console.warn('[Y171] loginPopup failed:', e.message);
+    // Popup blocked (mobile app) — fall back to redirect
+    if (e.message && (e.message.includes('popup') || e.message.includes('block'))) {
+      statusMsg('Redirecting to sign in…');
+      const returnTo = encodeURIComponent('https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx');
+      try { window.top.location.href = 'https://udadmin2026.github.io/Sharepoint/auth/?returnTo=' + returnTo; }
+      catch(err) {}
+    } else {
+      statusMsg('Sign in failed — ' + e.message.slice(0, 50));
+      if (btn) { btn.disabled = false; btn.textContent = '🔐 Sign in to load live data'; }
+    }
   }
 }
 
 async function getToken() {
-  // In-memory token (survives auto-refresh within same page load)
-  if (_token && _expiry > Date.now() + 60000) {
-    return _token;
-  }
+  // In-memory (survives 2-min auto-refresh within same page load)
+  if (_token && _expiry > Date.now() + 60000) return _token;
 
-  // localStorage fallback — written by auth page after mobile redirect flow
+  // localStorage — written by auth redirect flow on mobile
   try {
     const raw = localStorage.getItem('ud_sp_token_y171');
     if (raw) {
       const { token, expiry } = JSON.parse(raw);
       if (token && expiry > Date.now() + 60000) {
-        _token  = token;
-        _expiry = expiry;
+        _token = token; _expiry = expiry;
         statusMsg('Token from cache ✓');
         return _token;
       }
-      localStorage.removeItem('ud_sp_token_y171'); // expired
+      localStorage.removeItem('ud_sp_token_y171');
     }
   } catch(e) {}
 
-  // Try MSAL silent refresh if we have a cached account (regular browser after first sign-in)
+  // MSAL silent refresh (regular browser with cached account)
   try {
-    const msalConfig = {
-      auth: {
-        clientId:    CLIENT_ID,
-        authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
-        redirectUri: 'https://udadmin2026.github.io/Sharepoint/auth/',
-      },
-      cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
-    };
-    if (!msalApp) {
-      msalApp = new msal.PublicClientApplication(msalConfig);
-      await msalApp.initialize();
-      await new Promise(r => setTimeout(r, 200));
-    }
-    let accounts = msalApp.getAllAccounts();
+    const app = await getMsalApp();
+    let accounts = app.getAllAccounts();
     if (accounts.length === 0) {
       const raw = getAccountFromStorage();
-      if (raw) { try { msalApp.setActiveAccount(raw); accounts = [raw]; } catch(e) {} }
+      if (raw) { try { app.setActiveAccount(raw); accounts = [raw]; } catch(e) {} }
     }
-    if (accounts.length > 0) {
-      statusMsg('Auth: refreshing token…');
-      for (const account of accounts) {
-        try {
-          const r = await msalApp.acquireTokenSilent({ scopes: TOKEN_SCOPE, account });
-          _token  = r.accessToken;
-          _expiry = r.expiresOn ? new Date(r.expiresOn).getTime() : Date.now() + 3600000;
-          statusMsg('Token OK ✓');
-          return _token;
-        } catch(e) { console.warn('[Y171] silent refresh:', e.message); }
-      }
+    statusMsg('Auth: ' + accounts.length + ' account(s)…');
+    for (const account of accounts) {
+      try {
+        const r = await app.acquireTokenSilent({ scopes: TOKEN_SCOPE, account });
+        _token  = r.accessToken;
+        _expiry = r.expiresOn ? new Date(r.expiresOn).getTime() : Date.now() + 3600000;
+        statusMsg('Token OK ✓');
+        return _token;
+      } catch(e) { console.warn('[Y171] silent:', e.message); }
     }
   } catch(e) { console.warn('[Y171] MSAL:', e.message); }
 
-  // No token available — show sign-in button
-  statusMsg('Sign in required');
+  // No token — show sign-in button
   showSignInButton();
   return null;
 }
