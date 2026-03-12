@@ -95,6 +95,27 @@
     .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; }
     .stat-tile { padding: 16px 14px; border-right: 1px solid var(--border); text-align: center; transition: background 0.15s; }
     .stat-tile:last-child { border-right: none; }
+    .stat-sub { font-size: 10px; color: var(--muted); margin-top: 3px; letter-spacing: 0.3px; }
+    .prod-spec-row {
+      display: flex; gap: 20px; padding: 8px 14px 0;
+      font-size: 11px; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .prod-spec-row strong { color: var(--text); font-size: 13px; }
+    .hours-section {
+      margin: 4px 0 0; border-top: 1px solid var(--border); padding: 10px 14px 12px;
+    }
+    .hours-header {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 8px;
+    }
+    .hours-grid {
+      display: grid; grid-template-columns: 140px repeat(5, 1fr);
+      align-items: center; gap: 2px; margin-bottom: 4px;
+    }
+    .hours-label-col { font-size: 11px; color: var(--muted); }
+    .hours-period { font-size: 10px; color: var(--muted); text-align: center; letter-spacing: 0.03em; }
+    .hours-val { font-size: 12px; font-weight: 600; color: var(--text); text-align: center; }
+    .hours-val.maint { color: #FFAB00; }
     .stat-tile:hover { background: rgba(245,246,250,0.04); }
     .stat-label { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 8px; }
     .stat-value { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 700; color: var(--white); line-height: 1; }
@@ -439,6 +460,9 @@ const PROD = {
   project:      'Project',              // Lookup → Project List Title
   jobName:      'Job_x0020_Name',       // Choice fallback
   buckets:      'Yarder_x0020_Buckets',
+  cycles:       'Yarder_x0020_Cycles',  // confirmed via field probe
+  yarderHrs:    'Yarder_x0020__x0020_Hrs_x0020_', // Yarder (Hrs) — confirmed via field probe
+  maintHrs:     'Maintenance_x0020_and_x0020_Dow', // Maintenance and Down (Hrs) — probe pending
   yardsPerBkt:  'YardsPerBucket_x0028_Number_x002',
   tonsPerYard:  'TonsPerYard_x0028_Number_x0029_',
   actualTons:   'AcutalTons',           // pre-calculated fallback
@@ -917,25 +941,46 @@ function logNavTo(idx) {
   renderLogDay();
 }
 
-function renderStats(stats, jobName, contractedTons) {
+function fmt1(n) { return n > 0 ? n.toLocaleString('en-US', {maximumFractionDigits:1}) : '—'; }
+
+function renderStats(stats, jobName, contractedTons, projectItem) {
   const pct = contractedTons > 0 ? Math.min((stats.total / contractedTons) * 100, 100) : null;
 
-  document.getElementById('prodJobLabel').textContent = jobName ? `— ${jobName}` : '';
+  document.getElementById('prodJobLabel').textContent = jobName ? '— ' + jobName : '';
 
-  const tiles = [
-    { label: 'Yesterday',   value: stats.yesterday,  highlight: true },
-    { label: 'This Week',   value: stats.thisWeek,   highlight: false },
-    { label: 'Last Week',   value: stats.lastWeek,   highlight: false },
-    { label: 'This Month',  value: stats.thisMonth,  highlight: false },
-    { label: 'Last Month',  value: stats.lastMonth,  highlight: false },
-  ];
+  const periods = ['Yesterday','This Week','Last Week','This Month','Last Month'];
+  const tonVals    = [stats.yesterday,  stats.thisWeek,  stats.lastWeek,  stats.thisMonth,  stats.lastMonth];
+  const bktVals    = [stats.bucketsYest, stats.bucketsWeek, stats.bucketsLastWeek, stats.bucketsMonth, stats.bucketsLastMonth];
+  const cycVals    = [stats.cyclesYest,  stats.cyclesWeek,  stats.cyclesLastWeek,  stats.cyclesMonth,  stats.cyclesLastMonth];
+  const hrsVals    = [stats.hrsYest,    stats.hrsWeek,    stats.hrsLastWeek,    stats.hrsMonth,    stats.hrsLastMonth];
+  const maintVals  = [stats.maintYest,  stats.maintWeek,  stats.maintLastWeek,  stats.maintMonth,  stats.maintLastMonth];
 
-  const tilesHtml = tiles.map(t => `
-    <div class="stat-tile">
-      <div class="stat-label">${t.label}</div>
-      <div class="stat-value ${t.value > 0 ? (t.highlight ? 'highlight' : '') : 'dimmed'}">${fmtTons(t.value)}</div>
-      <div class="stat-unit">tons</div>
-    </div>`).join('');
+  const hasHrs   = hrsVals.some(v => v > 0);
+  const hasMaint = maintVals.some(v => v > 0);
+  const hasCyc   = cycVals.some(v => v > 0);
+  const hasBkt   = bktVals.some(v => v > 0);
+
+  // Project spec row (bucket size + tons/bucket from Project List)
+  const bucketSize = projectItem ? (parseFloat(projectItem['YarderBucketSize']) || 0) : 0;
+  const tonsBucket = projectItem ? (parseFloat(projectItem['Tons_x002f_Bucket']) || 0) : 0;
+  const tonsPerYd  = projectItem ? (parseFloat(projectItem['Tons_x002f_Yd'])    || 0) : 0;
+  const specParts = [];
+  if (bucketSize > 0) specParts.push('<span>Bucket Size <strong>' + bucketSize + ' yd³</strong></span>');
+  if (tonsBucket > 0) specParts.push('<span>Tons/Bucket <strong>' + tonsBucket + '</strong></span>');
+  else if (tonsPerYd > 0) specParts.push('<span>Tons/Yd <strong>' + tonsPerYd + '</strong></span>');
+  const specHtml = specParts.length ? '<div class="prod-spec-row">' + specParts.join('') + '</div>' : '';
+
+  // Main tons tiles
+  const tilesHtml = periods.map(function(lbl, i) {
+    const v = tonVals[i];
+    return '<div class="stat-tile">' +
+      '<div class="stat-label">' + lbl + '</div>' +
+      '<div class="stat-value ' + (v > 0 ? (i === 0 ? 'highlight' : '') : 'dimmed') + '">' + fmtTons(v) + '</div>' +
+      '<div class="stat-unit">tons</div>' +
+      (hasBkt ? '<div class="stat-sub">' + fmt1(bktVals[i]) + ' bkts</div>' : '') +
+      (hasCyc ? '<div class="stat-sub">' + fmt1(cycVals[i]) + ' cyc</div>' : '') +
+      '</div>';
+  }).join('');
 
   const progressHtml = pct !== null ? `
     <div class="progress-bar-wrap">
@@ -951,9 +996,29 @@ function renderStats(stats, jobName, contractedTons) {
       <div class="progress-label"><span>Total production for active project</span><strong>${fmtTons(stats.total)} T</strong></div>
     </div>`;
 
-  document.getElementById('prodBody').innerHTML = `
-    <div class="stats-grid">${tilesHtml}</div>
-    ${progressHtml}`;
+  // Hours sub-section
+  const hrsSection = (hasHrs || hasMaint) ? `
+    <div class="hours-section">
+      <div class="hours-header">Hours</div>
+      <div class="hours-grid">
+        <div class="hours-label-col"></div>
+        ${periods.map(p => '<div class="hours-period">' + p + '</div>').join('')}
+      </div>
+      ${hasHrs ? `<div class="hours-grid">
+        <div class="hours-label-col">Yarder (Hrs)</div>
+        ${hrsVals.map(v => '<div class="hours-val">' + fmt1(v) + '</div>').join('')}
+      </div>` : ''}
+      ${hasMaint ? `<div class="hours-grid">
+        <div class="hours-label-col">Maint &amp; Down (Hrs)</div>
+        ${maintVals.map(v => '<div class="hours-val maint">' + fmt1(v) + '</div>').join('')}
+      </div>` : ''}
+    </div>` : '';
+
+  document.getElementById('prodBody').innerHTML =
+    specHtml +
+    '<div class="stats-grid">' + tilesHtml + '</div>' +
+    progressHtml +
+    hrsSection;
 }
 
 // ── FETCH HELPER ──────────────────────────────────────────
@@ -1005,7 +1070,7 @@ async function fetchProduction(token, projectTitle) {
   const cutoffISO = cutoff.toISOString();
 
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
-            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`
+            + `?$select=Id,${PROD.date},${PROD.buckets},${PROD.cycles},${PROD.yarderHrs},${PROD.maintHrs},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`
             + `&$expand=${PROD.project}`
             + `&$filter=${PROD.date} ge datetime'${cutoffISO}'`
             + `&$top=2000`
@@ -1103,20 +1168,41 @@ function calcTons(entry, projectMultipliers) {
 // ── AGGREGATE tonnage into time buckets ───────────────────
 function aggregateTons(entries, projectMultipliers) {
   const ranges = getDateRanges();
-  const stats = { yesterday: 0, thisWeek: 0, lastWeek: 0, thisMonth: 0, lastMonth: 0, total: 0 };
+  const stats = {
+    yesterday: 0, thisWeek: 0, lastWeek: 0, thisMonth: 0, lastMonth: 0, total: 0,
+    // Buckets
+    bucketsYest: 0, bucketsWeek: 0, bucketsLastWeek: 0, bucketsMonth: 0, bucketsLastMonth: 0,
+    // Cycles
+    cyclesYest: 0, cyclesWeek: 0, cyclesLastWeek: 0, cyclesMonth: 0, cyclesLastMonth: 0,
+    // Yarder Hrs
+    hrsYest: 0, hrsWeek: 0, hrsLastWeek: 0, hrsMonth: 0, hrsLastMonth: 0,
+    // Maint/Down Hrs
+    maintYest: 0, maintWeek: 0, maintLastWeek: 0, maintMonth: 0, maintLastMonth: 0,
+  };
 
   entries.forEach(entry => {
     const rawDate = entry[PROD.date];
     if (!rawDate) return;
     const d = new Date(rawDate);
-    const tons = calcTons(entry, projectMultipliers);
+    const tons    = calcTons(entry, projectMultipliers);
+    const buckets = parseFloat(entry[PROD.buckets])   || 0;
+    const cycles  = parseFloat(entry[PROD.cycles])    || 0;
+    const yHrs    = parseFloat(entry[PROD.yarderHrs]) || 0;
+    const mHrs    = parseFloat(entry[PROD.maintHrs])  || 0;
+
     stats.total += tons;
 
-    if (d >= ranges.yest       && d <= ranges.yestEnd)       stats.yesterday += tons;
-    if (d >= ranges.thisWeekStart && d <= ranges.thisWeekEnd) stats.thisWeek  += tons;
-    if (d >= ranges.lastWeekStart && d <= ranges.lastWeekEnd) stats.lastWeek  += tons;
-    if (d >= ranges.thisMonthStart && d <= ranges.thisMonthEnd) stats.thisMonth += tons;
-    if (d >= ranges.lastMonthStart && d <= ranges.lastMonthEnd) stats.lastMonth += tons;
+    const inYest      = d >= ranges.yest          && d <= ranges.yestEnd;
+    const inThisWeek  = d >= ranges.thisWeekStart  && d <= ranges.thisWeekEnd;
+    const inLastWeek  = d >= ranges.lastWeekStart  && d <= ranges.lastWeekEnd;
+    const inThisMon   = d >= ranges.thisMonthStart && d <= ranges.thisMonthEnd;
+    const inLastMon   = d >= ranges.lastMonthStart && d <= ranges.lastMonthEnd;
+
+    if (inYest)     { stats.yesterday += tons; stats.bucketsYest += buckets; stats.cyclesYest += cycles; stats.hrsYest += yHrs; stats.maintYest += mHrs; }
+    if (inThisWeek) { stats.thisWeek  += tons; stats.bucketsWeek += buckets; stats.cyclesWeek += cycles; stats.hrsWeek += yHrs; stats.maintWeek += mHrs; }
+    if (inLastWeek) { stats.lastWeek  += tons; stats.bucketsLastWeek += buckets; stats.cyclesLastWeek += cycles; stats.hrsLastWeek += yHrs; stats.maintLastWeek += mHrs; }
+    if (inThisMon)  { stats.thisMonth += tons; stats.bucketsMonth += buckets; stats.cyclesMonth += cycles; stats.hrsMonth += yHrs; stats.maintMonth += mHrs; }
+    if (inLastMon)  { stats.lastMonth += tons; stats.bucketsLastMonth += buckets; stats.cyclesLastMonth += cycles; stats.hrsLastMonth += yHrs; stats.maintLastMonth += mHrs; }
   });
 
   return stats;
@@ -1300,14 +1386,14 @@ async function loadData() {
         if (filtered.length === 0 && allProd.length > 0) {
           document.getElementById('prodJobLabel').textContent = '— (no project match found)';
           const stats = aggregateTons(allProd, projectMultipliers);
-          renderStats(stats, 'All Entries', contractedTons);
+          renderStats(stats, 'All Entries', contractedTons, activeItem);
           renderCharts(allProd, projectMultipliers);
           fetchComments(token, '').then(commentMap => {
             renderDailyLog(allProd, 'All Entries', commentMap);
           }).catch(() => renderDailyLog(allProd, 'All Entries', {}));
         } else {
           const stats = aggregateTons(filtered, projectMultipliers);
-          renderStats(stats, jobName || activeItem.Title || '', contractedTons);
+          renderStats(stats, jobName || activeItem.Title || '', contractedTons, activeItem);
           renderCharts(filtered, projectMultipliers);
           // Fetch comments separately (different $select to avoid field name issues)
           fetchComments(token, jobName || activeItem.Title || '').then(commentMap => {
@@ -1330,7 +1416,8 @@ async function loadData() {
 
 // Fetch ALL production entries with pagination (no date filter — captures full project history)
 async function fetchAllProduction(token) {
-  const baseSelect = `Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`;
+  // maintHrs field name is a probe guess — will appear as 0 if wrong; check console
+  const baseSelect = `Id,${PROD.date},${PROD.buckets},${PROD.cycles},${PROD.yarderHrs},${PROD.maintHrs},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`;
   const baseExpand = PROD.project;
   let url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
           + `?$select=${baseSelect}&$expand=${baseExpand}&$top=5000`;
