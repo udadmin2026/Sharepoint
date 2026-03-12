@@ -198,6 +198,14 @@
     }
     .log-day-chip.active .log-day-chip-label,
     .log-day-chip.active .log-day-chip-num { color: #fff; }
+    .log-day-chip.is-today:not(.active) {
+      border-color: var(--muted);
+    }
+    .log-day-chip.is-today .log-day-chip-label { color: var(--green); font-weight: 700; }
+    /* Hide scrollbar on date strip but keep scroll */
+    #logWeekStrip::-webkit-scrollbar { height: 3px; }
+    #logWeekStrip::-webkit-scrollbar-track { background: transparent; }
+    #logWeekStrip::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 2px; }
 
     /* ── RESPONSIVE ── */
     @media (max-width: 860px) {
@@ -315,26 +323,32 @@
 
     <!-- Daily Log / Comments -->
     <div class="production-section" id="dailyLogSection" style="display:none">
-      <div class="production-header">
+      <!-- Header row: title + date label + collapse toggle -->
+      <div class="production-header" onclick="toggleLog()" style="cursor:pointer;user-select:none">
         <div class="production-title">
           <span class="prod-icon">💬</span>
           Daily Log
           <span class="production-job" id="logJobLabel"></span>
         </div>
-        <div style="font-size:11px;color:var(--muted);">Comments by date</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="logDateLabel" style="font-size:12px;color:var(--muted);font-weight:400"></span>
+          <button id="logCollapseBtn" style="background:var(--card-border);border:none;color:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:14px;line-height:1;flex-shrink:0">−</button>
+        </div>
       </div>
-      <!-- Date navigation -->
-      <div id="logNav" style="display:flex;align-items:center;gap:8px;padding:10px 0 4px">
-        <button onclick="logNavStep(-1)" style="background:var(--card-border);border:none;color:#fff;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:16px">‹</button>
-        <span id="logDateLabel" style="flex:1;text-align:center;font-size:13px;font-weight:600;color:var(--text)"></span>
-        <button onclick="logNavStep(1)" id="logNavNext" style="background:var(--card-border);border:none;color:#fff;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:16px">›</button>
+      <!-- Collapsible body -->
+      <div id="logCollapsible">
+        <!-- Date strip across the top -->
+        <div style="display:flex;align-items:center;gap:6px;padding:10px 0 6px">
+          <button onclick="event.stopPropagation();logGoToday()" id="logTodayBtn"
+            style="flex-shrink:0;background:var(--red);border:none;color:#fff;border-radius:6px;
+                   font-size:11px;font-weight:700;padding:5px 10px;cursor:pointer;letter-spacing:.04em">TODAY</button>
+          <div id="logWeekStrip" style="display:flex;gap:4px;overflow-x:auto;flex:1;padding-bottom:2px"></div>
+        </div>
+        <!-- Tons for selected day -->
+        <div id="logDayTons" style="font-size:12px;color:var(--muted);padding:0 0 6px;text-align:center"></div>
+        <!-- Comment content -->
+        <div id="logBody" style="min-height:50px"></div>
       </div>
-      <!-- Ton summary for selected day -->
-      <div id="logDayTons" style="font-size:12px;color:var(--muted);padding:0 0 8px;text-align:center"></div>
-      <!-- Comments list -->
-      <div id="logBody" style="min-height:60px"></div>
-      <!-- Week strip -->
-      <div id="logWeekStrip" style="display:flex;gap:4px;padding:10px 0 2px;overflow-x:auto"></div>
     </div>
 
   </div><!-- /main-col -->
@@ -785,40 +799,40 @@ function renderLogDay() {
   const day = _logDays[_logDayIndex];
   const dayEntries = _logEntries.filter(e => getEntryDate(e) === day);
 
-  // Format date label
+  // Header date label
   const d = new Date(day + 'T12:00:00');
-  const dayLabel = d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+  const today = new Date().toISOString().slice(0,10);
+  const isToday = day === today;
+  const dayLabel = isToday
+    ? 'Today — ' + d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
+    : d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' });
   document.getElementById('logDateLabel').textContent = dayLabel;
 
-  // Nav button states
-  const prevBtn = document.querySelector('#dailyLogSection button:first-of-type');
-  const nextBtn = document.getElementById('logNavNext');
-  if (prevBtn) prevBtn.disabled = _logDayIndex >= _logDays.length - 1;
-  if (nextBtn) nextBtn.disabled = _logDayIndex <= 0;
-  if (prevBtn) prevBtn.style.opacity = prevBtn.disabled ? '.3' : '1';
-  if (nextBtn) nextBtn.style.opacity = nextBtn.disabled ? '.3' : '1';
+  // Today button dim when already on today
+  const todayBtn = document.getElementById('logTodayBtn');
+  if (todayBtn) todayBtn.style.opacity = isToday ? '0.4' : '1';
 
   // Tons for the day
   const dayTons = dayEntries.reduce((sum, e) => sum + calcTons(e), 0);
   document.getElementById('logDayTons').textContent = dayTons > 0
-    ? `${fmtTons(dayTons)} tons produced`
+    ? fmtTons(dayTons) + ' tons produced'
     : '';
 
-  // Comments — from the separately fetched comment map
+  // Comments
   const logBody = document.getElementById('logBody');
   const commentText = _commentMap[day] || '';
   const comments = commentText ? [commentText] : [];
 
   if (comments.length === 0) {
-    logBody.innerHTML = `<div class="log-entry-empty">No comments recorded for this date</div>`;
+    logBody.innerHTML = '<div class="log-entry-empty">No comments recorded for this date</div>';
   } else {
-    logBody.innerHTML = comments.map(c => `
-      <div class="log-entry">
-        <div class="log-comment">${c.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
-      </div>`).join('');
+    logBody.innerHTML = comments.map(function(c) {
+      return '<div class="log-entry"><div class="log-comment">' +
+        c.replace(/</g,'&lt;').replace(/>/g,'&gt;') +
+        '</div></div>';
+    }).join('');
   }
 
-  // Week strip — show 14 days centered on current day
   renderWeekStrip(day);
 }
 
@@ -826,30 +840,42 @@ function renderWeekStrip(selectedDay) {
   const strip = document.getElementById('logWeekStrip');
   if (!strip) return;
 
-  // Show last 14 days that have entries
-  const shown = _logDays.slice(0, 14);
+  const shown = _logDays.slice(0, 30);
   const dayNames = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  const today = new Date().toISOString().slice(0,10);
+  const daysWithComments = new Set(Object.keys(_commentMap).filter(function(d) { return _commentMap[d]; }));
 
-  // Map days with comments — from the comment map
-  const daysWithComments = new Set(Object.keys(_commentMap).filter(d => _commentMap[d]));
-
-  strip.innerHTML = shown.map((day, i) => {
-    const d    = new Date(day + 'T12:00:00');
-    const dow  = dayNames[d.getDay()];
-    const num  = d.getDate();
-    const idx  = _logDays.indexOf(day);
+  strip.innerHTML = shown.map(function(day) {
+    const d   = new Date(day + 'T12:00:00');
+    const dow = dayNames[d.getDay()];
+    const num = d.getDate();
+    const idx = _logDays.indexOf(day);
     const isActive   = day === selectedDay;
+    const isToday    = day === today;
     const hasComment = daysWithComments.has(day);
-    return `<div class="log-day-chip ${isActive ? 'active' : ''} ${hasComment ? 'has-comment' : ''}"
-      onclick="logNavTo(${idx})">
-      <div class="log-day-chip-label">${dow}</div>
-      <div class="log-day-chip-num">${num}</div>
-    </div>`;
+    return '<div class="log-day-chip' +
+      (isActive ? ' active' : '') +
+      (hasComment ? ' has-comment' : '') +
+      (isToday ? ' is-today' : '') +
+      '" onclick="logNavTo(' + idx + ')">' +
+      '<div class="log-day-chip-label">' + dow + '</div>' +
+      '<div class="log-day-chip-num">' + num + '</div>' +
+      '</div>';
   }).join('');
 }
 
-function logNavStep(dir) {
-  _logDayIndex = Math.max(0, Math.min(_logDays.length - 1, _logDayIndex - dir));
+function toggleLog() {
+  const body = document.getElementById('logCollapsible');
+  const btn  = document.getElementById('logCollapseBtn');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  btn.textContent = open ? '+' : '−';
+}
+
+function logGoToday() {
+  const today = new Date().toISOString().slice(0,10);
+  const idx = _logDays.indexOf(today);
+  _logDayIndex = idx >= 0 ? idx : 0;
   renderLogDay();
 }
 
