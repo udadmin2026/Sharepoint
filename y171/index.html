@@ -876,27 +876,18 @@ async function getToken() {
     }
   } catch(e) { console.warn('[Y171] MSAL failed:', e.message); }
 
-  // ── Tier 3: Need interactive sign-in ─────────────────────
-  const loopGuard = sessionStorage.getItem('y171_auth_loop');
-  if (loopGuard) {
-    sessionStorage.removeItem('y171_auth_loop');
-    showError('Sign-in completed but token not received. Please refresh the page.');
-    return null;
-  }
-  sessionStorage.setItem('y171_auth_loop', '1');
-  statusMsg('Sign in required…');
-
-  // Build auth URL — pass current widget URL and SP page as returnTo
-  const widgetUrl  = 'https://udadmin2026.github.io/Sharepoint/y171/';
-  const spPage     = 'https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx';
-  const authUrl    = 'https://udadmin2026.github.io/Sharepoint/auth/'
+  // ── Tier 3: Navigate to auth page ───────────────────────
+  statusMsg('Sign in required — redirecting…');
+  const widgetUrl = 'https://udadmin2026.github.io/Sharepoint/y171/';
+  const spPage    = 'https://jddredging.sharepoint.com/sites/Dredging/SitePages/Y171.aspx';
+  const authUrl   = 'https://udadmin2026.github.io/Sharepoint/auth/'
     + '?widget='   + encodeURIComponent(widgetUrl)
     + '&returnTo=' + encodeURIComponent(spPage);
 
   setTimeout(() => {
     try { window.top.location.href = authUrl; }
     catch(e) { window.open(authUrl, '_blank'); statusMsg('Sign-in tab opened — return here after signing in.'); }
-  }, 800);
+  }, 500);
   return null;
 }
 
