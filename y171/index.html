@@ -1110,7 +1110,7 @@ function renderWorkOrders() {
     const groupId = 'wog_' + statusDef.key.replace(/\s+/g,'_');
     const isOpen  = statusDef.key === 'Open' || statusDef.key === 'In Progress';
     html += '<div class="wo-status-group">';
-    html += '<div class="wo-status-header" onclick="toggleWOGroup('' + groupId + '')">';
+    html += '<div class="wo-status-header" onclick="toggleWOGroup(\'' + groupId + '\')">';
     html += '<div class="wo-status-dot" style="background:' + statusDef.color + '"></div>';
     html += '<div class="wo-status-name" style="color:' + statusDef.color + '">' + statusDef.key + '</div>';
     html += '<div class="wo-status-count">' + wos.length + ' order' + (wos.length !== 1 ? 's' : '') + '</div>';
