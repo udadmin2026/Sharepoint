@@ -1261,6 +1261,7 @@ async function loadData() {
 
   try {
     // Step 1: Load project cards
+    statusMsg('Loading projects…');
     const [activeItems, mobilItems] = await Promise.all([
       fetchByStatus(token, 'Active'),
       fetchByStatus(token, 'Mobilization Scheduled')
@@ -1273,6 +1274,7 @@ async function loadData() {
       const contractedTons = parseFloat(activeItem[COLS.tonnage]) || 0;
 
       // Step 2b: Load Job Checklist for active project
+      statusMsg('Loading job details…');
       try {
         const jobRecord = await fetchJobChecklist(token, activeItem.Title || '');
         renderJobDetails(jobRecord, activeItem.Title || '');
@@ -1282,7 +1284,7 @@ async function loadData() {
       }
 
       try {
-        // Try matching by project lookup title — we'll try a few strategies
+        statusMsg('Loading production data…');
         // First get all recent production for this machine's job
         const allProd = await fetchAllProduction(token);
 
@@ -1340,6 +1342,7 @@ async function fetchAllProduction(token) {
   const MAX_PAGES = 20; // safety cap — 20 × 5000 = 100,000 entries max
 
   while (url && pageCount < MAX_PAGES) {
+    statusMsg('Loading production p.' + (pageCount+1) + '…');
     const r = await fetchSP(url, token, 30000);
     if (!r.ok) { const e = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} — ${e.slice(0,200)}`); }
     const data = await r.json();
