@@ -1173,8 +1173,7 @@ function renderWODetailPanel(wo) {
 
   // Request details / notes
   const notes = wo[WO.details] || '';
-  if (notes) h += '<div class="wo-detail-notes">' + notes.replace(/</g,'&lt;').replace(/
-/g,'<br>') + '</div>';
+  if (notes) h += '<div class="wo-detail-notes">' + notes.replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
 
   // Detail line items
   if (details.length > 0) {
