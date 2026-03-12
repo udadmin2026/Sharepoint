@@ -61,6 +61,12 @@ const isPopup = params.get('popup') === '1' || (window.opener && window.opener !
 
 function deliverToken(accessToken, expiresOn) {
   const expiry = expiresOn ? new Date(expiresOn).getTime() : Date.now() + 3600000;
+  const tokenData = JSON.stringify({ token: accessToken, expiry: expiry });
+
+  // Always write to localStorage as a fallback for mobile redirect flow
+  // (mobile SP app can read this after redirect since tracking prevention
+  //  is less aggressive in mobile browsers for same-origin iframes)
+  try { localStorage.setItem('ud_sp_token_y171', tokenData); } catch(e) {}
 
   document.getElementById('spinner').style.display = 'none';
   document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in!';
@@ -69,14 +75,17 @@ function deliverToken(accessToken, expiresOn) {
   localStorage.removeItem('ud_auth_widget');
 
   if (isPopup && window.opener) {
-    // Popup mode — postMessage token back to the widget iframe, then close
-    window.opener.postMessage(
-      { type: 'ud_token', token: accessToken, expiry: expiry },
-      'https://udadmin2026.github.io'
-    );
+    // Popup mode — postMessage token back to widget iframe, then close
+    try {
+      window.opener.postMessage(
+        { type: 'ud_token', token: accessToken, expiry: expiry },
+        'https://udadmin2026.github.io'
+      );
+    } catch(e) {}
     setTimeout(() => window.close(), 500);
   } else {
-    // Top-frame redirect mode — navigate back to SharePoint
+    // Redirect mode (mobile) — navigate back to SharePoint
+    // Widget will find token in localStorage on reload
     setTimeout(() => { window.location.href = returnTo; }, 800);
   }
 }
