@@ -563,7 +563,6 @@ const WO = {
   urgency:      'Urgency',
   details:      'RequestDetails',
   assignedTo:   'AssignedTo',          // MultiChoice
-  team:         'Team',                // MultiChoice
   dateReq:      'DateOfRequet',
   startDate:    'StartDate',
   dateComplete: 'DateCompleted',
@@ -574,6 +573,7 @@ const WO = {
   woId:         'WOID',
   woTypecat:    'WOTypeCategory',
   equipType:    'EquipType',
+  nextOwner:    'NextOwner',            // 'Team' in the WO app UI — MultiChoice
   // Author/Created come from SharePoint system fields
   // Author is expanded via $expand=Author/Title
   // Created is a system DateTime field
@@ -1049,22 +1049,29 @@ let _woDetails = {};     // MasterID → [detail rows]
 let _woSelected = null;  // currently selected WO Id
 
 async function fetchWorkOrders(token) {
-  const select = 'Id,Created,' + [WO.title,WO.customer,WO.status,WO.priority,WO.urgency,
-    WO.details,WO.assignedTo,WO.team,WO.dateReq,WO.startDate,WO.dateComplete,
-    WO.hardEndDate,WO.estHours,WO.hoursTotal,WO.invoiceTotal,WO.woId,
-    WO.woTypecat,WO.equipType].join(',');
+  const coreFields = [WO.title,WO.customer,WO.status,WO.priority,WO.urgency,
+    WO.details,WO.assignedTo,WO.dateReq,WO.startDate,WO.dateComplete,
+    WO.estHours,WO.hoursTotal,WO.invoiceTotal,WO.woId,WO.woTypecat];
+  const optFields  = [WO.hardEndDate, WO.equipType, WO.nextOwner]; // may not exist — tried separately
   const filter = encodeURIComponent("Customer eq '" + MACHINE + "'");
-  const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_LIST) + "')/items"
-    + "?$select=" + select + ",Author/Title&$expand=Author&$filter=" + filter + "&$top=500";
-  const r = await fetchSP(url, token, 20000);
-  if (!r.ok) { const e = await r.text().catch(function(){return'';}); throw new Error('WO fetch HTTP ' + r.status + ' — ' + e.slice(0,200)); }
-  const data = await r.json();
-  const results = data?.d?.results ?? [];
-  if (results.length > 0 && !window._woProbeDone) {
-    window._woProbeDone = true;
-    console.log('[Y171] WO sample fields:', Object.keys(results[0]).map(k => k + '=' + JSON.stringify(results[0][k]).slice(0,40)));
+  const base = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_LIST) + "')/items";
+
+  // Try full select first; if 400 fall back to core only
+  for (const fields of [coreFields.concat(optFields), coreFields]) {
+    const select = 'Id,Created,' + fields.join(',');
+    const url = base + "?$select=" + select + ",Author/Title&$expand=Author&$filter=" + filter + "&$top=500";
+    const r = await fetchSP(url, token, 20000);
+    if (r.status === 400) { console.warn('[Y171] WO fetch 400 with extended fields, retrying core only'); continue; }
+    if (!r.ok) { const e = await r.text().catch(function(){return'';}); throw new Error('WO fetch HTTP ' + r.status + ' — ' + e.slice(0,200)); }
+    const data = await r.json();
+    const results = data?.d?.results ?? [];
+    if (results.length > 0 && !window._woProbeDone) {
+      window._woProbeDone = true;
+      console.log('[Y171] WO fields available:', Object.keys(results[0]).filter(k => !k.startsWith('__') && !k.startsWith('odata')).sort().join(', '));
+    }
+    return results;
   }
-  return results;
+  return [];
 }
 
 async function fetchWODetails(token) {
@@ -1118,8 +1125,8 @@ function renderWOGroup(statusKey, color, wos, groupId, isOpen) {
     const urgency  = wo[WO.urgency] || '';
     const priClr   = priorityColor(pri);
     const typecat  = wo[WO.woTypecat] || '';
-    const assigned = (function(){ const a=wo[WO.assignedTo]; return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
-    const team     = (function(){ const a=wo[WO.team];       return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
+    const assigned  = (function(){ const a=wo[WO.assignedTo]; return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
+    const nextOwner = (function(){ const a=wo[WO.nextOwner];  return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
     const dateStart = fmtDate(wo[WO.startDate]);
     const dateReq  = fmtDate(wo[WO.dateReq]);
     const hardEnd  = wo[WO.hardEndDate] ? fmtDate(wo[WO.hardEndDate]) : '';
@@ -1137,8 +1144,8 @@ function renderWOGroup(statusKey, color, wos, groupId, isOpen) {
     h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px;align-items:center">';
     if (pri)      h += '<span class="wo-priority-pill" style="background:' + priClr + ';color:' + (pri==='Low'||pri==='Normal'?'var(--muted)':'#fff') + '">' + pri + '</span>';
     if (urgency)  h += '<span class="wo-priority-pill" style="background:rgba(255,255,255,0.08);color:var(--muted)">' + urgency + '</span>';
-    const pplStr = [assigned, team].filter(Boolean).join(' / ');
-    if (pplStr)   h += '<span style="font-size:10px;color:var(--muted)">' + pplStr + '</span>';
+    const pplStr = [assigned, nextOwner ? '&#x27A4; ' + nextOwner : ''].filter(Boolean).join(' ');
+    if (pplStr) h += '<span style="font-size:10px;color:var(--muted)">' + pplStr + '</span>';
     h += '</div>';
     h += '</div>';
     h += '<div class="wo-row-meta" style="white-space:nowrap">';
@@ -1222,7 +1229,7 @@ function renderWODetailPanel(wo) {
 
   // Field grid — 3 columns
   const assignedTo  = (function(){ const a=wo[WO.assignedTo]; return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
-  const team        = (function(){ const a=wo[WO.team];       return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
+  const nextOwner   = (function(){ const a=wo[WO.nextOwner];  return Array.isArray(a&&a.results) ? a.results.join(', ') : (a||''); })();
   const createdBy   = (wo['Author'] && wo['Author']['Title']) ? wo['Author']['Title'] : '';
   const createdDate = wo['Created'] ? fmtDatetime(wo['Created']) : '';
   const hardEnd     = fmtDate(wo[WO.hardEndDate]);
@@ -1234,7 +1241,7 @@ function renderWODetailPanel(wo) {
     ['Priority',     wo[WO.priority]],
     ['Urgency',      wo[WO.urgency]],
     ['Assigned To',  assignedTo || null],
-    ['Team',         team || null],
+    ['Next Owner',   nextOwner || null],
     ['Requested',    fmtDate(wo[WO.dateReq])],
     ['Start Date',   fmtDate(wo[WO.startDate])],
     ['Hard End',     hardEnd !== '\u2014' ? hardEnd : null],
