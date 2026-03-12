@@ -470,6 +470,8 @@ const COMMENT_FIELDS = [
   'Comments0',
 ];
 
+const WO_LIST     = 'Machine Shop Work Orders';
+const WO_DET_LIST = 'Machine Shop Work Order Details';
 const REFRESH_MS = 15 * 60 * 1000;
 let timer = null;
 let activeProjectTitle = null;
@@ -1328,6 +1330,23 @@ async function getToken() {
   return null;
 }
 
+async function probeWOFields(token) {
+  for (const listName of [WO_LIST, WO_DET_LIST]) {
+    try {
+      const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(listName) + "')/fields"
+        + "?$select=Title,InternalName,TypeAsString"
+        + "&$filter=Hidden eq false and ReadOnlyField eq false&$top=200";
+      const r = await fetchSP(url, token, 10000);
+      if (!r.ok) { console.warn('[Y171] WO field probe HTTP', r.status, 'for', listName); continue; }
+      const fields = (await r.json())?.d?.results ?? [];
+      console.log('[Y171] === ' + listName + ' fields (' + fields.length + ') ===');
+      fields.forEach(function(f) {
+        console.log('[Y171]   ' + f.InternalName + ' (' + f.Title + ') [' + f.TypeAsString + ']');
+      });
+    } catch(e) { console.warn('[Y171] probeWOFields error for', listName, ':', e.message); }
+  }
+}
+
 async function probeMaintField(token) {
   try {
     const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(PROD_LIST) + "')/fields"
@@ -1364,6 +1383,9 @@ async function loadData() {
     if (btn) { btn.classList.remove('loading'); btn.textContent = '↻ Refresh'; }
     return;
   }
+
+  // One-time WO field probe
+  if (!window._woProbeDone) { window._woProbeDone = true; probeWOFields(token); }
 
   try {
     // Step 1: Load project cards
