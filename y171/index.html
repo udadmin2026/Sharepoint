@@ -96,26 +96,19 @@
     .stat-tile { padding: 16px 14px; border-right: 1px solid var(--border); text-align: center; transition: background 0.15s; }
     .stat-tile:last-child { border-right: none; }
     .stat-sub { font-size: 10px; color: var(--muted); margin-top: 3px; letter-spacing: 0.3px; }
+    .stat-divider { height: 1px; background: var(--border); margin: 8px -14px; }
+    .stat-hrs { font-size: 11px; font-weight: 600; color: var(--text); margin-top: 2px; }
+    .stat-hrs-label { font-size: 9px; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 1px; }
+    .stat-pct { font-size: 10px; font-weight: 700; margin-top: 2px; }
+    .stat-pct.good { color: var(--green); }
+    .stat-pct.warn { color: #FFAB00; }
+    .stat-maint { font-size: 11px; font-weight: 600; color: #FFAB00; margin-top: 4px; }
+    .stat-maint-label { font-size: 9px; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 1px; }
     .prod-spec-row {
       display: flex; gap: 20px; padding: 8px 14px 0;
       font-size: 11px; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase;
     }
     .prod-spec-row strong { color: var(--text); font-size: 13px; }
-    .hours-section {
-      margin: 4px 0 0; border-top: 1px solid var(--border); padding: 10px 14px 12px;
-    }
-    .hours-header {
-      font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-      color: var(--muted); margin-bottom: 8px;
-    }
-    .hours-grid {
-      display: grid; grid-template-columns: 140px repeat(5, 1fr);
-      align-items: center; gap: 2px; margin-bottom: 4px;
-    }
-    .hours-label-col { font-size: 11px; color: var(--muted); }
-    .hours-period { font-size: 10px; color: var(--muted); text-align: center; letter-spacing: 0.03em; }
-    .hours-val { font-size: 12px; font-weight: 600; color: var(--text); text-align: center; }
-    .hours-val.maint { color: #FFAB00; }
     .stat-tile:hover { background: rgba(245,246,250,0.04); }
     .stat-label { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 8px; }
     .stat-value { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 700; color: var(--white); line-height: 1; }
@@ -970,16 +963,42 @@ function renderStats(stats, jobName, contractedTons, projectItem) {
   else if (tonsPerYd > 0) specParts.push('<span>Tons/Yd <strong>' + tonsPerYd + '</strong></span>');
   const specHtml = specParts.length ? '<div class="prod-spec-row">' + specParts.join('') + '</div>' : '';
 
-  // Main tons tiles
+  // Main tons tiles — with hours integrated
   const tilesHtml = periods.map(function(lbl, i) {
-    const v = tonVals[i];
-    return '<div class="stat-tile">' +
-      '<div class="stat-label">' + lbl + '</div>' +
-      '<div class="stat-value ' + (v > 0 ? (i === 0 ? 'highlight' : '') : 'dimmed') + '">' + fmtTons(v) + '</div>' +
-      '<div class="stat-unit">tons</div>' +
-      (hasBkt ? '<div class="stat-sub">' + fmt1(bktVals[i]) + ' bkts</div>' : '') +
-      (hasCyc ? '<div class="stat-sub">' + fmt1(cycVals[i]) + ' cyc</div>' : '') +
-      '</div>';
+    const v    = tonVals[i];
+    const hrs  = hrsVals[i];
+    const mnt  = maintVals[i];
+    // Production % = yarder hrs > 0 ? (production hrs / yarder hrs) * 100
+    // We don't have separate "production hrs" so use: if yarder hrs > 0, show it
+    // Efficiency: production time is yarder hrs minus maint hrs
+    const prodHrs = (hrs - mnt) > 0 ? (hrs - mnt) : (hrs > 0 ? hrs : 0);
+    const pct = (hrs > 0 && prodHrs >= 0) ? Math.round((prodHrs / hrs) * 100) : null;
+    const pctClass = pct === null ? '' : pct >= 75 ? 'good' : 'warn';
+
+    let html = '<div class="stat-tile">';
+    html += '<div class="stat-label">' + lbl + '</div>';
+    html += '<div class="stat-value ' + (v > 0 ? (i === 0 ? 'highlight' : '') : 'dimmed') + '">' + fmtTons(v) + '</div>';
+    html += '<div class="stat-unit">tons</div>';
+    if (hasBkt) html += '<div class="stat-sub">' + fmt1(bktVals[i]) + ' bkts</div>';
+    if (hasCyc) html += '<div class="stat-sub">' + fmt1(cycVals[i]) + ' cyc</div>';
+
+    // Hours divider + Yarder Hrs
+    if (hasHrs && hrs > 0) {
+      html += '<div class="stat-divider"></div>';
+      html += '<div class="stat-hrs">' + fmt1(hrs) + '</div>';
+      html += '<div class="stat-hrs-label">Yarder Hrs</div>';
+      if (pct !== null) {
+        html += '<div class="stat-pct ' + pctClass + '">' + pct + '% prod</div>';
+      }
+    }
+    // Maint / Down
+    if (hasMaint && mnt > 0) {
+      html += '<div class="stat-maint">' + fmt1(mnt) + '</div>';
+      html += '<div class="stat-maint-label">Maint &amp; Down</div>';
+    }
+
+    html += '</div>';
+    return html;
   }).join('');
 
   const progressHtml = pct !== null ? `
@@ -996,29 +1015,10 @@ function renderStats(stats, jobName, contractedTons, projectItem) {
       <div class="progress-label"><span>Total production for active project</span><strong>${fmtTons(stats.total)} T</strong></div>
     </div>`;
 
-  // Hours sub-section
-  const hrsSection = (hasHrs || hasMaint) ? `
-    <div class="hours-section">
-      <div class="hours-header">Hours</div>
-      <div class="hours-grid">
-        <div class="hours-label-col"></div>
-        ${periods.map(p => '<div class="hours-period">' + p + '</div>').join('')}
-      </div>
-      ${hasHrs ? `<div class="hours-grid">
-        <div class="hours-label-col">Yarder (Hrs)</div>
-        ${hrsVals.map(v => '<div class="hours-val">' + fmt1(v) + '</div>').join('')}
-      </div>` : ''}
-      ${hasMaint ? `<div class="hours-grid">
-        <div class="hours-label-col">Maint &amp; Down (Hrs)</div>
-        ${maintVals.map(v => '<div class="hours-val maint">' + fmt1(v) + '</div>').join('')}
-      </div>` : ''}
-    </div>` : '';
-
   document.getElementById('prodBody').innerHTML =
     specHtml +
     '<div class="stats-grid">' + tilesHtml + '</div>' +
-    progressHtml +
-    hrsSection;
+    progressHtml;
 }
 
 // ── FETCH HELPER ──────────────────────────────────────────
