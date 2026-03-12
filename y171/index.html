@@ -1028,10 +1028,53 @@ async function fetchProduction(token, projectTitle) {
 }
 
 // ── FETCH: Daily Comments ─────────────────────────────────
-let _detectedCommentField = 'Commetns';
-let _detectedYarderField  = 'YarderOperator'; // confirmed via field probe (Lookup type)
+let _detectedCommentField = 'Commetns';     // confirmed internal name (typo in original SP column)
+let _detectedYarderField  = 'YarderOperator'; // confirmed via field probe (Lookup — person, not machine)
 
+async function fetchComments(token, projectTitle) {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 2);
 
+  const urlStar = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(PROD_LIST) + "')/items"
+    + "?$select=Id," + PROD.date + "," + PROD.project + "/Title," + PROD.jobName + ",Commetns"
+    + "&$expand=" + PROD.project
+    + "&$filter=" + PROD.date + " ge datetime'" + cutoff.toISOString() + "'"
+    + "&$top=500";
+
+  try {
+    const r = await fetchSP(urlStar, token, 15000);
+    if (!r.ok) { console.warn('[Y171] fetchComments HTTP', r.status); return {}; }
+    const items = (await r.json())?.d?.results ?? [];
+    console.log('[Y171] Comment fetch got', items.length, 'items for machine', MACHINE);
+    if (items.length === 0) return {};
+
+    // Build date -> comment map — filter by project title
+    const map = {};
+    for (const item of items) {
+      // Filter by project title
+      const proj = item[PROD.project];
+      const itemProj = proj?.Title || proj || '';
+      const itemJob  = (item[PROD.jobName] || '').trim();
+      if (projectTitle && itemProj !== projectTitle && itemJob !== projectTitle) continue;
+
+      // Note: YarderOperator is the operator (person) Lookup, not machine ID.
+      // Machine filtering is handled by the project title match above.
+
+      const dateKey = (item[PROD.date] || '').slice(0, 10);
+      const comment = (item[_detectedCommentField] || '').trim();
+      if (dateKey && comment) {
+        map[dateKey] = map[dateKey] ? map[dateKey] + '
+
+' + comment : comment;
+      }
+    }
+    console.log('[Y171] Comment map:', Object.keys(map).length, 'dates with comments');
+    return map;
+  } catch(e) {
+    console.warn('[Y171] fetchComments error:', e.message);
+    return {};
+  }
+}
 
 // ── CALC: Tonnage per entry ────────────────────────────────
 // projectMultipliers: { bucketSize, tonsPerYd, tonsBucket } from Project List item
