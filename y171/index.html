@@ -750,7 +750,9 @@ function getEntryDate(entry) {
   return d.toISOString().slice(0, 10); // 'YYYY-MM-DD'
 }
 
-function renderDailyLog(entries, jobName) {
+let _commentMap = {}; // date string → comment text
+
+function renderDailyLog(entries, jobName, commentMap) {
   const section = document.getElementById('dailyLogSection');
   if (!section) return;
 
@@ -759,7 +761,8 @@ function renderDailyLog(entries, jobName) {
     return;
   }
 
-  _commentField = detectCommentField(entries);
+  _commentMap   = commentMap || {};
+  _commentField = null; // not used — we use _commentMap now
   _logEntries   = entries;
 
   // Build unique days list (DESC)
@@ -800,11 +803,10 @@ function renderLogDay() {
     ? `${fmtTons(dayTons)} tons produced`
     : '';
 
-  // Comments
+  // Comments — from the separately fetched comment map
   const logBody = document.getElementById('logBody');
-  const comments = dayEntries
-    .map(e => (e[_commentField] || '').trim())
-    .filter(Boolean);
+  const commentText = _commentMap[day] || '';
+  const comments = commentText ? [commentText] : [];
 
   if (comments.length === 0) {
     logBody.innerHTML = `<div class="log-entry-empty">No comments recorded for this date</div>`;
@@ -827,12 +829,8 @@ function renderWeekStrip(selectedDay) {
   const shown = _logDays.slice(0, 14);
   const dayNames = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 
-  // Map days with comments
-  const daysWithComments = new Set(
-    _logEntries
-      .filter(e => (e[_commentField] || '').trim().length > 0)
-      .map(e => getEntryDate(e))
-  );
+  // Map days with comments — from the comment map
+  const daysWithComments = new Set(Object.keys(_commentMap).filter(d => _commentMap[d]));
 
   strip.innerHTML = shown.map((day, i) => {
     const d    = new Date(day + 'T12:00:00');
@@ -969,6 +967,86 @@ async function fetchProduction(token, projectTitle) {
   });
 
   return entries;
+}
+
+// ── FETCH: Daily Comments ─────────────────────────────────
+// Fetches comments separately using $select=* to avoid internal name guessing
+let _detectedCommentField = null;
+
+async function fetchComments(token, projectTitle) {
+  // First call: probe with $select=* on a single item to find the comment field
+  if (!_detectedCommentField) {
+    const probeUrl = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
+      + `?$top=5&$orderby=${PROD.date} desc&$select=*&$expand=${PROD.project}`;
+    try {
+      const r = await fetchSP(probeUrl, token);
+      if (r.ok) {
+        const data = await r.json();
+        const items = data?.d?.results ?? [];
+        if (items.length > 0) {
+          const allKeys = Object.keys(items[0]).filter(k => !k.startsWith('odata') && !k.startsWith('__'));
+          console.log('[Y171] All production fields:', allKeys.join(', '));
+          // Find comment field — look for non-numeric text fields with content
+          for (const key of allKeys) {
+            for (const item of items) {
+              const v = item[key];
+              if (typeof v === 'string' && v.length > 10 && isNaN(Number(v))
+                  && !key.includes('Title') && !key.includes('Date')
+                  && !key.includes('odata') && !key.includes('GUID')
+                  && !key.includes('Url') && !key.includes('Modified')
+                  && !key.includes('Created') && !key.includes('Author')
+                  && !key.includes('Editor') && !key.includes('Name')) {
+                console.log('[Y171] Comment field found:', key, '=', v.slice(0, 60));
+                _detectedCommentField = key;
+                break;
+              }
+            }
+            if (_detectedCommentField) break;
+          }
+          if (!_detectedCommentField) {
+            // Fallback: try known candidates that exist on items
+            for (const candidate of ['Comments0', '_Comments', 'Yarder_x0020_Comments', 'Body', 'Note']) {
+              if (candidate in items[0]) { _detectedCommentField = candidate; break; }
+            }
+          }
+        }
+      }
+    } catch(e) { console.warn('[Y171] Comment probe failed:', e.message); }
+    if (!_detectedCommentField) {
+      console.warn('[Y171] Could not detect comment field');
+      return {};
+    }
+  }
+
+  // Now fetch recent entries with just Id, Date, Project, and the comment field
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 2);
+  const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
+    + `?$select=Id,${PROD.date},${PROD.project}/Title,${_detectedCommentField}`
+    + `&$expand=${PROD.project}`
+    + `&$filter=${PROD.date} ge datetime'${cutoff.toISOString()}'`
+    + `&$top=500&$orderby=${PROD.date} desc`;
+
+  try {
+    const r = await fetchSP(url, token);
+    if (!r.ok) { console.warn('[Y171] Comments fetch failed:', r.status); return {}; }
+    const items = (await r.json())?.d?.results ?? [];
+
+    // Build map: 'YYYY-MM-DD' → comment text (for entries matching project)
+    const map = {};
+    for (const item of items) {
+      const projTitle = (item[PROD.project]?.Title || '').trim();
+      if (projectTitle && projTitle !== projectTitle) continue;
+      const dateKey = item[PROD.date]?.slice(0, 10);
+      const comment = (item[_detectedCommentField] || '').trim();
+      if (dateKey && comment) {
+        map[dateKey] = map[dateKey] ? map[dateKey] + '
+
+' + comment : comment;
+      }
+    }
+    return map;
+  } catch(e) { console.warn('[Y171] Comments fetch error:', e.message); return {}; }
 }
 
 // ── CALC: Tonnage per entry ────────────────────────────────
@@ -1193,13 +1271,18 @@ async function loadData() {
           document.getElementById('prodJobLabel').textContent = '— (no project match found)';
           const stats = aggregateTons(allProd, projectMultipliers);
           renderStats(stats, 'All Entries', contractedTons);
-          renderDailyLog(allProd, 'All Entries');
           renderCharts(allProd, projectMultipliers);
+          fetchComments(token, '').then(commentMap => {
+            renderDailyLog(allProd, 'All Entries', commentMap);
+          }).catch(() => renderDailyLog(allProd, 'All Entries', {}));
         } else {
           const stats = aggregateTons(filtered, projectMultipliers);
           renderStats(stats, jobName || activeItem.Title || '', contractedTons);
-          renderDailyLog(filtered, jobName || activeItem.Title || '');
           renderCharts(filtered, projectMultipliers);
+          // Fetch comments separately (different $select to avoid field name issues)
+          fetchComments(token, jobName || activeItem.Title || '').then(commentMap => {
+            renderDailyLog(filtered, jobName || activeItem.Title || '', commentMap);
+          }).catch(() => renderDailyLog(filtered, jobName || activeItem.Title || '', {}));
         }
       } catch(prodErr) {
         document.getElementById('prodBody').innerHTML = `<div class="production-error">⚠ Production data error: ${prodErr.message}</div>`;
@@ -1217,7 +1300,7 @@ async function loadData() {
 
 // Fetch ALL production entries with pagination (no date filter — captures full project history)
 async function fetchAllProduction(token) {
-  const baseSelect = `Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title,Comments`;
+  const baseSelect = `Id,${PROD.date},${PROD.buckets},${PROD.yardsPerBkt},${PROD.tonsPerYard},${PROD.actualTons},${PROD.jobName},${PROD.project}/Title`;
   const baseExpand = PROD.project;
   let url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(PROD_LIST)}')/items`
           + `?$select=${baseSelect}&$expand=${baseExpand}&$top=5000`;
