@@ -56,33 +56,27 @@ const cfg = {
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
-// After getting a token, redirect to the WIDGET URL with token in the hash.
-// The widget reads the hash, stores token in its own sessionStorage, then
-// navigates window.top to the SharePoint page. All same-origin — no cross-origin
-// localStorage blocking.
+// After getting a token, store it in sessionStorage then navigate to SP page.
+// Auth page is on github.io (top-level). Widget iframe is also github.io inside SP.
+// Same origin + same tab = shared sessionStorage. No tracking prevention applies
+// because the widget is reading its OWN origin's sessionStorage (not cross-origin).
 function deliverToken(accessToken, expiresOn) {
   const expiry = expiresOn
     ? new Date(expiresOn).getTime()
     : Date.now() + 3600000;
 
+  // Store token in sessionStorage — widget iframe will read this same key
+  const TOKEN_KEY = 'ud_sp_token_y171';
+  sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token: accessToken, expiry: expiry }));
+  console.log('[Auth] Token stored in sessionStorage, navigating to SP page');
+
   document.getElementById('spinner').style.display = 'none';
-  document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in! Loading…';
+  document.getElementById('status').innerHTML = '<div class="check">✓</div>Signed in! Returning to SharePoint…';
 
   localStorage.removeItem('ud_auth_returnTo');
   localStorage.removeItem('ud_auth_widget');
 
-  // Encode token + expiry + returnTo into the widget URL hash
-  const payload = encodeURIComponent(JSON.stringify({
-    token: accessToken,
-    expiry: expiry,
-    returnTo: returnTo
-  }));
-
-  // Redirect TOP frame to widget URL with token in hash
-  // Widget reads hash, stores to its own sessionStorage, then sends top to SP page
-  setTimeout(() => {
-    window.location.href = widgetUrl + '#sptoken=' + payload;
-  }, 800);
+  setTimeout(() => { window.location.href = returnTo; }, 800);
 }
 
 async function run() {
