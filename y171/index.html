@@ -151,6 +151,67 @@
     .chart-subtitle { font-size: 11px; color: var(--muted); }
     .chart-body { padding: 14px 16px 16px; position: relative; }
 
+    /* ── WORK ORDERS ── */
+    .wo-status-group { border-bottom: 1px solid var(--border); }
+    .wo-status-group:last-child { border-bottom: none; }
+    .wo-status-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 16px; cursor: pointer; user-select: none;
+      transition: background 0.15s;
+    }
+    .wo-status-header:hover { background: rgba(245,246,250,0.04); }
+    .wo-status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .wo-status-name { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; flex: 1; }
+    .wo-status-count { font-size: 11px; color: var(--muted); }
+    .wo-status-chevron { font-size: 11px; color: var(--muted); transition: transform 0.2s; }
+    .wo-status-chevron.open { transform: rotate(90deg); }
+    .wo-list { display: none; }
+    .wo-list.open { display: block; }
+    .wo-row {
+      display: grid; grid-template-columns: auto 1fr auto;
+      align-items: center; gap: 10px;
+      padding: 9px 16px 9px 36px; cursor: pointer;
+      border-top: 1px solid rgba(245,246,250,0.04);
+      transition: background 0.15s;
+    }
+    .wo-row:hover { background: rgba(245,246,250,0.05); }
+    .wo-row.selected { background: rgba(35,45,99,0.45); }
+    .wo-row-id { font-size: 10px; font-weight: 700; color: var(--muted); font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.06em; }
+    .wo-row-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wo-row-meta { font-size: 10px; color: var(--muted); text-align: right; white-space: nowrap; }
+    .wo-priority-pill {
+      display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.05em;
+      text-transform: uppercase; padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+    }
+    /* Work Order detail panel */
+    .wo-detail-panel {
+      margin: 0 16px 12px; padding: 14px 16px;
+      background: rgba(255,255,255,0.03); border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .wo-detail-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+    .wo-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin-bottom: 12px; }
+    .wo-detail-field { }
+    .wo-detail-label { font-size: 9px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+    .wo-detail-value { font-size: 12px; color: var(--text); }
+    .wo-detail-notes { font-size: 12px; color: var(--text); line-height: 1.5; padding: 8px 10px; background: rgba(0,0,0,0.15); border-radius: 6px; margin-bottom: 12px; }
+    .wo-detail-section-hdr { font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); padding: 8px 0 6px; border-top: 1px solid var(--border); margin-top: 4px; }
+    .wo-detail-row {
+      display: grid; grid-template-columns: 1fr 1fr 1fr 80px;
+      gap: 6px; padding: 6px 8px; border-radius: 6px;
+      font-size: 11px; color: var(--text);
+      border-bottom: 1px solid rgba(245,246,250,0.04);
+      align-items: start;
+    }
+    .wo-detail-row:last-child { border-bottom: none; }
+    .wo-detail-row-hdr {
+      display: grid; grid-template-columns: 1fr 1fr 1fr 80px;
+      gap: 6px; padding: 4px 8px;
+      font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+    }
+    .wo-detail-comment { font-size: 11px; color: var(--muted); grid-column: 1 / -1; padding-top: 3px; line-height: 1.4; }
+    .wo-empty { padding: 14px 16px; font-size: 12px; color: var(--muted); font-style: italic; }
+
     /* ── DAILY LOG ── */
     .log-entry {
       background: var(--card-bg);
@@ -382,6 +443,26 @@
       </div>
     </div>
 
+    <!-- Work Orders Section -->
+    <div class="production-section" id="woSection" style="display:none">
+      <div class="production-header" onclick="toggleWOSection()" style="cursor:pointer;user-select:none">
+        <div class="production-title">
+          <span class="prod-icon">🔧</span>
+          Machine Shop Work Orders
+          <span class="production-job" id="woMachineLabel"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="woSummaryLabel" style="font-size:12px;color:var(--muted)"></span>
+          <button id="woCollapseBtn" style="background:var(--card-border);border:none;color:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:14px;line-height:1;flex-shrink:0">−</button>
+        </div>
+      </div>
+      <div id="woCollapsible">
+        <div id="woBody">
+          <div class="production-state"><div class="spinner" style="margin:0 auto"></div></div>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /main-col -->
 
   <!-- RIGHT: Job Details sidebar -->
@@ -455,7 +536,7 @@ const PROD = {
   buckets:      'Yarder_x0020_Buckets',
   cycles:       'Yarder_x0020_Cycles',  // confirmed via field probe
   yarderHrs:    'Yarder_x0020__x0020_Hrs_x0020_', // Yarder (Hrs) — confirmed via field probe
-  maintHrs:     '', // populated at runtime via field probe
+  maintHrs:     'Maintenance_x0020_and_x0020_Down_x0020__x0020_hrs_x0020_', // confirmed via field probe
   yardsPerBkt:  'YardsPerBucket_x0028_Number_x002',
   tonsPerYard:  'TonsPerYard_x0028_Number_x0029_',
   actualTons:   'AcutalTons',           // pre-calculated fallback
@@ -472,6 +553,49 @@ const COMMENT_FIELDS = [
 
 const WO_LIST     = 'Machine Shop Work Orders';
 const WO_DET_LIST = 'Machine Shop Work Order Details';
+// Work Order columns
+const WO = {
+  id:           'Id',
+  title:        'Title',
+  customer:     'Customer',            // Yarder/Customer Choice
+  status:       'Status',
+  priority:     'Priority',
+  urgency:      'Urgency',
+  details:      'RequestDetails',
+  assignedTo:   'AssignedTo',          // MultiChoice
+  dateReq:      'DateOfRequet',
+  startDate:    'StartDate',
+  dateComplete: 'DateCompleted',
+  estHours:     'WorkOrderEstimatedHours',
+  hoursTotal:   'HoursTotal',
+  invoiceTotal: 'InvoiceTotal',
+  woId:         'WOID',
+  woTypecat:    'WOTypeCategory',
+};
+// Work Order Detail columns
+const WOD = {
+  id:           'Id',
+  title:        'Title',
+  masterId:     'MasterID',            // links to WO Id
+  typeOfSvc:    'TypeofService',
+  timeSpent:    'TimeSpent',
+  comments:     'Comments',
+  timeStart:    'TimeStart',
+  timeEnd:      'TimeEnd',
+  hourlyRate:   'HourlyRate',
+  hourlyTotal:  'HourlyTotal',
+  materialTotal:'MaterialTotal',
+  estCost:      'EstimatedCost',
+};
+// WO Status display order + colors
+const WO_STATUSES = [
+  { key: 'Open',        color: '#DA0039' },
+  { key: 'In Progress', color: '#FFAB00' },
+  { key: 'On Hold',     color: '#9370DB' },
+  { key: 'Completed',   color: '#00C875' },
+  { key: 'Cancelled',   color: '#666' },
+];
+
 const REFRESH_MS = 15 * 60 * 1000;
 let timer = null;
 let activeProjectTitle = null;
@@ -907,6 +1031,196 @@ function renderWeekStrip(selectedDay) {
       '<div class="log-day-chip-num">' + num + '</div>' +
       '</div>';
   }).join('');
+}
+
+// ── WORK ORDERS ──────────────────────────────────────────
+let _woData = [];        // all WOs for this machine
+let _woDetails = {};     // MasterID → [detail rows]
+let _woSelected = null;  // currently selected WO Id
+
+async function fetchWorkOrders(token) {
+  const select = 'Id,' + [WO.title,WO.customer,WO.status,WO.priority,WO.urgency,
+    WO.details,WO.assignedTo,WO.dateReq,WO.startDate,WO.dateComplete,
+    WO.estHours,WO.hoursTotal,WO.invoiceTotal,WO.woId,WO.woTypecat].join(',');
+  const filter = encodeURIComponent("Customer eq '" + MACHINE + "'");
+  const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_LIST) + "')/items"
+    + "?$select=" + select + "&$filter=" + filter + "&$top=500&$orderby=Id desc";
+  const r = await fetchSP(url, token, 20000);
+  if (!r.ok) { const e = await r.text().catch(function(){return'';}); throw new Error('WO fetch HTTP ' + r.status + ' — ' + e.slice(0,200)); }
+  return (await r.json())?.d?.results ?? [];
+}
+
+async function fetchWODetails(token) {
+  const select = 'Id,' + [WOD.title,WOD.masterId,WOD.typeOfSvc,WOD.timeSpent,
+    WOD.comments,WOD.timeStart,WOD.timeEnd,WOD.hourlyRate,WOD.hourlyTotal,
+    WOD.materialTotal,WOD.estCost].join(',');
+  // Get details for all WOs in one shot — filter to WO IDs we have
+  const url = SITE_URL + "/_api/web/lists/getbytitle('" + encodeURIComponent(WO_DET_LIST) + "')/items"
+    + "?$select=" + select + "&$top=2000&$orderby=" + WOD.masterId + " asc";
+  const r = await fetchSP(url, token, 20000);
+  if (!r.ok) { console.warn('[Y171] WOD fetch HTTP', r.status); return []; }
+  return (await r.json())?.d?.results ?? [];
+}
+
+function priorityColor(p) {
+  const m = { 'Critical':'#DA0039','High':'#FF6B35','Medium':'#FFAB00','Low':'rgba(245,246,250,0.3)','Normal':'rgba(245,246,250,0.3)' };
+  return m[p] || 'rgba(245,246,250,0.2)';
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'});
+}
+
+function fmtCurrency(v) {
+  const n = parseFloat(v) || 0;
+  return n > 0 ? '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+}
+
+function renderWorkOrders() {
+  const section = document.getElementById('woSection');
+  const body    = document.getElementById('woBody');
+  if (!section || !body) return;
+
+  if (_woData.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = '';
+  document.getElementById('woMachineLabel').textContent = '— ' + MACHINE;
+
+  // Group by status
+  const grouped = {};
+  WO_STATUSES.forEach(function(s) { grouped[s.key] = []; });
+  _woData.forEach(function(wo) {
+    const st = wo[WO.status] || 'Unknown';
+    if (!grouped[st]) grouped[st] = [];
+    grouped[st].push(wo);
+  });
+
+  // Summary count
+  const open = (_woData.filter(function(w){ const s=w[WO.status]; return s==='Open'||s==='In Progress'; })).length;
+  document.getElementById('woSummaryLabel').textContent = open + ' active';
+
+  let html = '';
+  WO_STATUSES.forEach(function(statusDef) {
+    const wos = grouped[statusDef.key] || [];
+    if (wos.length === 0) return;
+    const groupId = 'wog_' + statusDef.key.replace(/\s+/g,'_');
+    const isOpen  = statusDef.key === 'Open' || statusDef.key === 'In Progress';
+    html += '<div class="wo-status-group">';
+    html += '<div class="wo-status-header" onclick="toggleWOGroup('' + groupId + '')">';
+    html += '<div class="wo-status-dot" style="background:' + statusDef.color + '"></div>';
+    html += '<div class="wo-status-name" style="color:' + statusDef.color + '">' + statusDef.key + '</div>';
+    html += '<div class="wo-status-count">' + wos.length + ' order' + (wos.length !== 1 ? 's' : '') + '</div>';
+    html += '<div class="wo-status-chevron' + (isOpen ? ' open' : '') + '" id="chev_' + groupId + '">▶</div>';
+    html += '</div>';
+    html += '<div class="wo-list' + (isOpen ? ' open' : '') + '" id="' + groupId + '">';
+    wos.forEach(function(wo) {
+      const woNum   = wo[WO.woId] || ('#' + wo.Id);
+      const title   = wo[WO.title] || '(no title)';
+      const pri     = wo[WO.priority] || '';
+      const priClr  = priorityColor(pri);
+      const dateStr = fmtDate(wo[WO.dateReq]);
+      const hrs     = parseFloat(wo[WO.hoursTotal]) || 0;
+      const meta    = (hrs > 0 ? hrs.toFixed(1) + 'h' : '') + (dateStr !== '—' ? (hrs > 0 ? ' · ' : '') + dateStr : '');
+      const isSelected = _woSelected === wo.Id;
+      html += '<div class="wo-row' + (isSelected ? ' selected' : '') + '" onclick="selectWO(' + wo.Id + ')">';
+      html += '<div class="wo-row-id">' + woNum + '</div>';
+      html += '<div>';
+      html += '<div class="wo-row-title">' + title + '</div>';
+      if (pri) html += '<span class="wo-priority-pill" style="background:' + priClr + ';color:' + (pri==='Low'||pri==='Normal'?'var(--muted)':'#fff') + '">' + pri + '</span>';
+      html += '</div>';
+      html += '<div class="wo-row-meta">' + meta + '</div>';
+      html += '</div>';
+      // Detail panel — shown inline below selected row
+      if (isSelected) {
+        html += renderWODetailPanel(wo);
+      }
+    });
+    html += '</div></div>';
+  });
+
+  body.innerHTML = html || '<div class="wo-empty">No work orders found for ' + MACHINE + '</div>';
+}
+
+function renderWODetailPanel(wo) {
+  const details = _woDetails[wo.Id] || [];
+  let h = '<div class="wo-detail-panel">';
+  h += '<div class="wo-detail-title">' + (wo[WO.title] || '') + '</div>';
+
+  // Key fields grid
+  h += '<div class="wo-detail-grid">';
+  const fields = [
+    ['Type',       wo[WO.woTypecat]],
+    ['Urgency',    wo[WO.urgency]],
+    ['Start',      fmtDate(wo[WO.startDate])],
+    ['Est. Hrs',   wo[WO.estHours] ? wo[WO.estHours] + ' hrs' : '—'],
+    ['Completed',  fmtDate(wo[WO.dateComplete])],
+    ['Actual Hrs', wo[WO.hoursTotal] ? parseFloat(wo[WO.hoursTotal]).toFixed(1) + ' hrs' : '—'],
+    ['Invoice',    fmtCurrency(wo[WO.invoiceTotal])],
+    ['Assigned',   (function(){ const a=wo[WO.assignedTo]; return Array.isArray(a?.results) ? a.results.join(', ') : (a||'—'); })()],
+  ];
+  fields.forEach(function(f) {
+    if (!f[1] || f[1]==='—') return;
+    h += '<div class="wo-detail-field">';
+    h += '<div class="wo-detail-label">' + f[0] + '</div>';
+    h += '<div class="wo-detail-value">' + f[1] + '</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+
+  // Request details / notes
+  const notes = wo[WO.details] || '';
+  if (notes) h += '<div class="wo-detail-notes">' + notes.replace(/</g,'&lt;').replace(/
+/g,'<br>') + '</div>';
+
+  // Detail line items
+  if (details.length > 0) {
+    h += '<div class="wo-detail-section-hdr">Work Detail Entries (' + details.length + ')</div>';
+    h += '<div class="wo-detail-row-hdr"><div>Type</div><div>Time</div><div>Comment</div><div style="text-align:right">Total</div></div>';
+    details.forEach(function(d) {
+      const svc     = d[WOD.typeOfSvc] || '—';
+      const spent   = d[WOD.timeSpent] || '—';
+      const comment = (d[WOD.comments] || '').trim();
+      const total   = parseFloat(d[WOD.hourlyTotal]) || parseFloat(d[WOD.materialTotal]) || 0;
+      h += '<div class="wo-detail-row">';
+      h += '<div>' + svc + '</div>';
+      h += '<div>' + spent + '</div>';
+      h += '<div>' + (comment || '—') + '</div>';
+      h += '<div style="text-align:right">' + (total > 0 ? fmtCurrency(total) : '—') + '</div>';
+      h += '</div>';
+    });
+  } else {
+    h += '<div class="wo-detail-section-hdr">Work Detail Entries</div>';
+    h += '<div class="wo-empty">No detail entries on record</div>';
+  }
+
+  h += '</div>';
+  return h;
+}
+
+function selectWO(id) {
+  _woSelected = (_woSelected === id) ? null : id; // toggle
+  renderWorkOrders();
+}
+
+function toggleWOGroup(groupId) {
+  const list = document.getElementById(groupId);
+  const chev = document.getElementById('chev_' + groupId);
+  if (!list) return;
+  const isOpen = list.classList.contains('open');
+  list.classList.toggle('open', !isOpen);
+  if (chev) chev.classList.toggle('open', !isOpen);
+}
+
+function toggleWOSection() {
+  const body = document.getElementById('woCollapsible');
+  const btn  = document.getElementById('woCollapseBtn');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  btn.textContent = open ? '+' : '−';
 }
 
 function toggleLog() {
@@ -1395,6 +1709,24 @@ async function loadData() {
       fetchByStatus(token, 'Mobilization Scheduled')
     ]);
     setCards(activeItems, mobilItems);
+
+    // Step 1b: Load Work Orders in parallel (non-blocking)
+    fetchWorkOrders(token).then(function(wos) {
+      _woData = wos;
+      return fetchWODetails(token).then(function(dets) {
+        // Build MasterID → details map
+        _woDetails = {};
+        dets.forEach(function(d) {
+          const mid = parseInt(d[WOD.masterId]);
+          if (!mid) return;
+          if (!_woDetails[mid]) _woDetails[mid] = [];
+          _woDetails[mid].push(d);
+        });
+        renderWorkOrders();
+      });
+    }).catch(function(e) {
+      console.warn('[Y171] WO load error:', e.message);
+    });
 
     // Step 2: Load production data for first active project
     if (activeItems.length > 0) {
