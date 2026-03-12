@@ -588,12 +588,16 @@ const WOD = {
   estCost:      'EstimatedCost',
 };
 // WO Status display order + colors
+// Active statuses (expanded by default) — others collapsed
+const WO_STATUS_ACTIVE = new Set(['New','In Progress','Received','At Vendor','On Hold']);
 const WO_STATUSES = [
-  { key: 'Open',        color: '#DA0039' },
+  { key: 'New',         color: '#DA0039' },
   { key: 'In Progress', color: '#FFAB00' },
-  { key: 'On Hold',     color: '#9370DB' },
+  { key: 'Received',    color: '#4A9EFF' },
+  { key: 'At Vendor',   color: '#9370DB' },
+  { key: 'On Hold',     color: '#FF8C42' },
   { key: 'Completed',   color: '#00C875' },
-  { key: 'Cancelled',   color: '#666' },
+  { key: 'Cancelled',   color: '#555' },
 ];
 
 const REFRESH_MS = 15 * 60 * 1000;
@@ -1077,6 +1081,39 @@ function fmtCurrency(v) {
   return n > 0 ? '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
 }
 
+function renderWOGroup(statusKey, color, wos, groupId, isOpen) {
+  let h = '';
+  h += '<div class="wo-status-group">';
+  h += '<div class="wo-status-header" onclick="toggleWOGroup(\'' + groupId + '\')">';
+  h += '<div class="wo-status-dot" style="background:' + color + '"></div>';
+  h += '<div class="wo-status-name" style="color:' + color + '">' + statusKey + '</div>';
+  h += '<div class="wo-status-count">' + wos.length + ' order' + (wos.length !== 1 ? 's' : '') + '</div>';
+  h += '<div class="wo-status-chevron' + (isOpen ? ' open' : '') + '" id="chev_' + groupId + '">▶</div>';
+  h += '</div>';
+  h += '<div class="wo-list' + (isOpen ? ' open' : '') + '" id="' + groupId + '">';
+  wos.forEach(function(wo) {
+    const woNum   = wo[WO.woId] || ('#' + wo.Id);
+    const title   = wo[WO.title] || '(no title)';
+    const pri     = wo[WO.priority] || '';
+    const priClr  = priorityColor(pri);
+    const dateStr = fmtDate(wo[WO.dateReq]);
+    const hrs     = parseFloat(wo[WO.hoursTotal]) || 0;
+    const meta    = (hrs > 0 ? hrs.toFixed(1) + 'h' : '') + (dateStr !== '—' ? (hrs > 0 ? ' · ' : '') + dateStr : '');
+    const isSelected = _woSelected === wo.Id;
+    h += '<div class="wo-row' + (isSelected ? ' selected' : '') + '" onclick="selectWO(' + wo.Id + ')">';
+    h += '<div class="wo-row-id">' + woNum + '</div>';
+    h += '<div style="min-width:0">';
+    h += '<div class="wo-row-title">' + title + '</div>';
+    if (pri) h += '<span class="wo-priority-pill" style="background:' + priClr + ';color:' + (pri==='Low'||pri==='Normal'?'var(--muted)':'#fff') + '">' + pri + '</span>';
+    h += '</div>';
+    h += '<div class="wo-row-meta">' + meta + '</div>';
+    h += '</div>';
+    if (isSelected) h += renderWODetailPanel(wo);
+  });
+  h += '</div></div>';
+  return h;
+}
+
 function renderWorkOrders() {
   const section = document.getElementById('woSection');
   const body    = document.getElementById('woBody');
@@ -1090,56 +1127,38 @@ function renderWorkOrders() {
   section.style.display = '';
   document.getElementById('woMachineLabel').textContent = '— ' + MACHINE;
 
-  // Group by status
+  // Group by status — collect all unique statuses including unknown ones
   const grouped = {};
   WO_STATUSES.forEach(function(s) { grouped[s.key] = []; });
+  const extraStatuses = {};
   _woData.forEach(function(wo) {
-    const st = wo[WO.status] || 'Unknown';
-    if (!grouped[st]) grouped[st] = [];
-    grouped[st].push(wo);
+    const st = (wo[WO.status] || 'Unknown').trim();
+    if (grouped[st] !== undefined) {
+      grouped[st].push(wo);
+    } else {
+      if (!extraStatuses[st]) extraStatuses[st] = [];
+      extraStatuses[st].push(wo);
+    }
   });
 
   // Summary count
-  const open = (_woData.filter(function(w){ const s=w[WO.status]; return s==='Open'||s==='In Progress'; })).length;
+  const open = _woData.filter(function(w){ return WO_STATUS_ACTIVE.has(w[WO.status]); }).length;
   document.getElementById('woSummaryLabel').textContent = open + ' active';
 
   let html = '';
   WO_STATUSES.forEach(function(statusDef) {
     const wos = grouped[statusDef.key] || [];
     if (wos.length === 0) return;
-    const groupId = 'wog_' + statusDef.key.replace(/\s+/g,'_');
-    const isOpen  = statusDef.key === 'Open' || statusDef.key === 'In Progress';
-    html += '<div class="wo-status-group">';
-    html += '<div class="wo-status-header" onclick="toggleWOGroup(\'' + groupId + '\')">';
-    html += '<div class="wo-status-dot" style="background:' + statusDef.color + '"></div>';
-    html += '<div class="wo-status-name" style="color:' + statusDef.color + '">' + statusDef.key + '</div>';
-    html += '<div class="wo-status-count">' + wos.length + ' order' + (wos.length !== 1 ? 's' : '') + '</div>';
-    html += '<div class="wo-status-chevron' + (isOpen ? ' open' : '') + '" id="chev_' + groupId + '">▶</div>';
-    html += '</div>';
-    html += '<div class="wo-list' + (isOpen ? ' open' : '') + '" id="' + groupId + '">';
-    wos.forEach(function(wo) {
-      const woNum   = wo[WO.woId] || ('#' + wo.Id);
-      const title   = wo[WO.title] || '(no title)';
-      const pri     = wo[WO.priority] || '';
-      const priClr  = priorityColor(pri);
-      const dateStr = fmtDate(wo[WO.dateReq]);
-      const hrs     = parseFloat(wo[WO.hoursTotal]) || 0;
-      const meta    = (hrs > 0 ? hrs.toFixed(1) + 'h' : '') + (dateStr !== '—' ? (hrs > 0 ? ' · ' : '') + dateStr : '');
-      const isSelected = _woSelected === wo.Id;
-      html += '<div class="wo-row' + (isSelected ? ' selected' : '') + '" onclick="selectWO(' + wo.Id + ')">';
-      html += '<div class="wo-row-id">' + woNum + '</div>';
-      html += '<div>';
-      html += '<div class="wo-row-title">' + title + '</div>';
-      if (pri) html += '<span class="wo-priority-pill" style="background:' + priClr + ';color:' + (pri==='Low'||pri==='Normal'?'var(--muted)':'#fff') + '">' + pri + '</span>';
-      html += '</div>';
-      html += '<div class="wo-row-meta">' + meta + '</div>';
-      html += '</div>';
-      // Detail panel — shown inline below selected row
-      if (isSelected) {
-        html += renderWODetailPanel(wo);
-      }
-    });
-    html += '</div></div>';
+    const groupId = 'wog_' + statusDef.key.replace(/[^a-zA-Z0-9]/g,'_');
+    html += renderWOGroup(statusDef.key, statusDef.color, wos, groupId, WO_STATUS_ACTIVE.has(statusDef.key));
+  });
+
+  // Render any statuses not in WO_STATUSES
+  Object.keys(extraStatuses).forEach(function(key) {
+    const wos = extraStatuses[key];
+    if (wos.length === 0) return;
+    const groupId = 'wog_' + key.replace(/[^a-zA-Z0-9]/g,'_');
+    html += renderWOGroup(key, '#888', wos, groupId, false);
   });
 
   body.innerHTML = html || '<div class="wo-empty">No work orders found for ' + MACHINE + '</div>';
@@ -1148,7 +1167,10 @@ function renderWorkOrders() {
 function renderWODetailPanel(wo) {
   const details = _woDetails[wo.Id] || [];
   let h = '<div class="wo-detail-panel">';
-  h += '<div class="wo-detail-title">' + (wo[WO.title] || '') + '</div>';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+  h += '<div class="wo-detail-title" style="margin:0">' + (wo[WO.title] || '') + '</div>';
+  h += '<button onclick="event.stopPropagation();selectWO(' + wo.Id + ')" style="background:var(--card-border);border:none;color:var(--muted);border-radius:6px;width:22px;height:22px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0" title="Close">✕</button>';
+  h += '</div>';
 
   // Key fields grid
   h += '<div class="wo-detail-grid">';
