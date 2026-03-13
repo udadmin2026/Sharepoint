@@ -760,8 +760,8 @@ function renderCharts(entries, projectMultipliers) {
 
   function makeChartOpts() {
     return {
-      responsive: true,
-      maintainAspectRatio: true,
+      responsive: false,          // prevent Chart.js resize feedback loop in iframes
+      maintainAspectRatio: false,
       animation: { duration: 300 },
       onHover: null,
       events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
@@ -1526,6 +1526,7 @@ async function fetchByStatus(token, status) {
   const url = `${SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(LIST_NAME)}')/items`
             + `?$select=Id,Title,${COLS.status},${COLS.machine},${COLS.location},${COLS.product},${COLS.tonnage},${COLS.bucketSize},${COLS.tonsPerYd},${COLS.tonsBucket},${COLS.customer}/Title`
             + `&$expand=${COLS.customer}`
+            + `&$orderby=Id desc`
             + `&$top=500`;
 
   const r = await fetchSP(url, token);
@@ -2143,12 +2144,23 @@ async function init() {
 init();
 
 // ── AUTO-HEIGHT ───────────────────────────────────────────
+// Debounced to break the Chart.js resize → ResizeObserver → iframe resize loop
+let _notifyTimer = null;
+let _lastNotifiedHeight = 0;
 function notifyHeight() {
-  const h = document.documentElement.scrollHeight;
-  window.parent.postMessage({ type: 'setHeight', height: h }, '*');
-  try { if (window.frameElement) window.frameElement.style.height = h + 'px'; } catch(e) {}
+  clearTimeout(_notifyTimer);
+  _notifyTimer = setTimeout(function() {
+    const h = document.documentElement.scrollHeight;
+    if (Math.abs(h - _lastNotifiedHeight) < 5) return; // ignore tiny fluctuations
+    _lastNotifiedHeight = h;
+    window.parent.postMessage({ type: 'setHeight', height: h }, '*');
+    try { if (window.frameElement) window.frameElement.style.height = h + 'px'; } catch(e) {}
+  }, 150); // wait 150ms for chart renders to settle
 }
-if (window.ResizeObserver) { new ResizeObserver(notifyHeight).observe(document.body); }
+if (window.ResizeObserver) {
+  const ro = new ResizeObserver(notifyHeight);
+  ro.observe(document.body);
+}
 window.addEventListener('load', notifyHeight);
 </script>
 </body>
